@@ -1,6 +1,6 @@
 package com.agentic.ai.spring_ai_service.audit.mapper;
 
-import com.agentic.ai.spring_ai_service.audit.dto.AuditAnalysisResultDto;
+import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAnalysisResultDto;
 import com.agentic.ai.spring_ai_service.audit.model.AuditAiAnalysis;
 import com.agentic.ai.spring_ai_service.audit.model.AuditEvent;
 

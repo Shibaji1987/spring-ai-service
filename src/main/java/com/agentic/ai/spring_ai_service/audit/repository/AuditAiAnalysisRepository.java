@@ -1,4 +1,4 @@
-package com.agentic.ai.spring_ai_service.repository;
+package com.agentic.ai.spring_ai_service.audit.repository;
 
 
 import com.agentic.ai.spring_ai_service.audit.model.AuditAiAnalysis;

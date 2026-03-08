@@ -1,4 +1,4 @@
-package com.agentic.ai.spring_ai_service.audit.dto;
+package com.agentic.ai.spring_ai_service.audit.dto.response;
 
 import java.time.LocalDateTime;
 import java.util.List;

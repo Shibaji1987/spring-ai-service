@@ -1,14 +1,14 @@
 package com.agentic.ai.spring_ai_service.service;
 
-import com.agentic.ai.spring_ai_service.audit.dto.AuditAiResponse;
+import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAiResponse;
 
-import com.agentic.ai.spring_ai_service.audit.dto.AuditAnalysisResultDto;
+import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAnalysisResultDto;
 import com.agentic.ai.spring_ai_service.audit.mapper.AuditAnalysisMapper;
 import com.agentic.ai.spring_ai_service.audit.model.AuditAiAnalysis;
 import com.agentic.ai.spring_ai_service.audit.model.AuditEvent;
 
-import com.agentic.ai.spring_ai_service.audit.dto.AuditAnalyzeRequest;
-import com.agentic.ai.spring_ai_service.repository.AuditAiAnalysisRepository;
+import com.agentic.ai.spring_ai_service.audit.dto.request.AuditAnalyzeRequest;
+import com.agentic.ai.spring_ai_service.audit.repository.AuditAiAnalysisRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
