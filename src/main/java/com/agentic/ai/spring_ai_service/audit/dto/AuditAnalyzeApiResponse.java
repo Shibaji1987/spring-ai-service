@@ -1,6 +1,4 @@
-package com.agentic.ai.spring_ai_service.dto.audit;
-
-import com.agentic.ai.spring_ai_service.dto.audit.AuditAnalyzeResponse;
+package com.agentic.ai.spring_ai_service.audit.dto;
 
 public record AuditAnalyzeApiResponse(
         String event,

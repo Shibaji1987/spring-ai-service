@@ -1,6 +1,5 @@
-package com.agentic.ai.spring_ai_service.dto.audit;
+package com.agentic.ai.spring_ai_service.audit.dto;
 
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Map;
 

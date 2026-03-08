@@ -2,11 +2,10 @@ package com.agentic.ai.spring_ai_service.service;
 
 import com.agentic.ai.spring_ai_service.audit.dto.AuditEventRequest;
 import com.agentic.ai.spring_ai_service.audit.model.AuditEvent;
-import com.agentic.ai.spring_ai_service.dto.audit.AuditAnalyzeRequest;
+import com.agentic.ai.spring_ai_service.audit.dto.AuditAnalyzeRequest;
 import com.agentic.ai.spring_ai_service.repository.AuditEventRepository;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;

@@ -1,9 +1,9 @@
-package com.agentic.ai.spring_ai_service.controller;
+package com.agentic.ai.spring_ai_service.audit.dto.controller;
 
 
 import com.agentic.ai.spring_ai_service.audit.dto.AuditAnalysisResultDto;
 import com.agentic.ai.spring_ai_service.audit.model.AuditAiAnalysis;
-import com.agentic.ai.spring_ai_service.dto.audit.AuditAnalyzeRequest;
+import com.agentic.ai.spring_ai_service.audit.dto.AuditAnalyzeRequest;
 import com.agentic.ai.spring_ai_service.service.AuditAnalysisService;
 import org.springframework.web.bind.annotation.*;
 

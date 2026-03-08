@@ -7,7 +7,7 @@ import com.agentic.ai.spring_ai_service.audit.mapper.AuditAnalysisMapper;
 import com.agentic.ai.spring_ai_service.audit.model.AuditAiAnalysis;
 import com.agentic.ai.spring_ai_service.audit.model.AuditEvent;
 
-import com.agentic.ai.spring_ai_service.dto.audit.AuditAnalyzeRequest;
+import com.agentic.ai.spring_ai_service.audit.dto.AuditAnalyzeRequest;
 import com.agentic.ai.spring_ai_service.repository.AuditAiAnalysisRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;

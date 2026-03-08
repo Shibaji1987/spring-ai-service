@@ -1,4 +1,4 @@
-package com.agentic.ai.spring_ai_service.dto.audit;
+package com.agentic.ai.spring_ai_service.audit.dto;
 
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 

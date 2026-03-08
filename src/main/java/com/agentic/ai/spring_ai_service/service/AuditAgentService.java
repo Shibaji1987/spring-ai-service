@@ -3,7 +3,7 @@ package com.agentic.ai.spring_ai_service.service;
 
 import com.agentic.ai.spring_ai_service.audit.dto.AuditHistoryStore;
 import com.agentic.ai.spring_ai_service.audit.tools.AuditTools;
-import com.agentic.ai.spring_ai_service.dto.audit.AuditAnalyzeResponse;
+import com.agentic.ai.spring_ai_service.audit.dto.AuditAnalyzeResponse;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 

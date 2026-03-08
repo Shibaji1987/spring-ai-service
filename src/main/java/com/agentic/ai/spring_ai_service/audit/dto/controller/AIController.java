@@ -1,4 +1,4 @@
-package com.agentic.ai.spring_ai_service.controller;
+package com.agentic.ai.spring_ai_service.audit.dto.controller;
 
 import com.agentic.ai.spring_ai_service.service.AIService;
 import org.springframework.web.bind.annotation.GetMapping;
