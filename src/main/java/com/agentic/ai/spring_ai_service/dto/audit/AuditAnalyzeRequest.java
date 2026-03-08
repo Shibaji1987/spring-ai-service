@@ -1,8 +1,15 @@
 package com.agentic.ai.spring_ai_service.dto.audit;
 
-import jakarta.validation.constraints.NotBlank;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.Map;
 
 public record AuditAnalyzeRequest(
-        @NotBlank(message = "event must not be blank")
-        String event
+        String eventType,
+        String actor,
+        String action,
+        String target,
+        String status,
+        LocalDateTime eventTime,
+        Map<String, Object> metadata
 ) {}

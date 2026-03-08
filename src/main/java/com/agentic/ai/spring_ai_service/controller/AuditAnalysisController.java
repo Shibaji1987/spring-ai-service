@@ -1,9 +1,13 @@
 package com.agentic.ai.spring_ai_service.controller;
 
-import com.agentic.ai.spring_ai_service.audit.dto.AuditAnalyzeResult;
-import com.agentic.ai.spring_ai_service.audit.dto.AuditEventRequest;
+
+import com.agentic.ai.spring_ai_service.audit.dto.AuditAnalysisResultDto;
+import com.agentic.ai.spring_ai_service.audit.model.AuditAiAnalysis;
+import com.agentic.ai.spring_ai_service.dto.audit.AuditAnalyzeRequest;
 import com.agentic.ai.spring_ai_service.service.AuditAnalysisService;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/audit")
@@ -16,12 +20,22 @@ public class AuditAnalysisController {
     }
 
     @PostMapping("/analyze")
-    public AuditAnalyzeResult analyze(@RequestBody AuditEventRequest request) throws Exception {
-        return auditAnalysisService.analyzeAndSave(request);
+    public AuditAnalysisResultDto analyze(@RequestBody AuditAnalyzeRequest request) {
+        return auditAnalysisService.analyze(request);
     }
 
-    @GetMapping("/analysis/event/{eventId}")
-    public com.agentic.ai.spring_ai_service.audit.model.AuditAiAnalysis getAnalysisByEventId(@PathVariable String eventId) {
+    @GetMapping("/analysis")
+    public List<AuditAiAnalysis> getAllAnalysis() {
+        return auditAnalysisService.getAllAnalysis();
+    }
+
+    @GetMapping("/analysis/{eventId}")
+    public AuditAiAnalysis getAnalysisByEventId(@PathVariable String eventId) {
         return auditAnalysisService.getAnalysisByEventId(eventId);
+    }
+
+    @GetMapping("/full/{eventId}")
+    public AuditAnalysisResultDto getFullAnalysis(@PathVariable String eventId) {
+        return auditAnalysisService.getFullAnalysis(eventId);
     }
 }
