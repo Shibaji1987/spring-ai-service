@@ -2,13 +2,15 @@ package com.agentic.ai.spring_ai_service.audit.tools;
 
 import com.agentic.ai.spring_ai_service.audit.model.AuditAiAnalysis;
 import com.agentic.ai.spring_ai_service.audit.model.AuditEvent;
-
 import com.agentic.ai.spring_ai_service.audit.repository.AuditAiAnalysisRepository;
-import com.agentic.ai.spring_ai_service.audit.repository.AuditEventRepository;
+import com.agentic.ai.spring_ai_service.service.AuditEventService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
-import java.util.LinkedHashMap;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -16,120 +18,121 @@ import java.util.stream.Collectors;
 @Component
 public class AuditTools {
 
-    private final AuditEventRepository auditEventRepository;
+    private static final Logger log = LoggerFactory.getLogger(AuditTools.class);
+
+    private final AuditEventService auditEventService;
     private final AuditAiAnalysisRepository auditAiAnalysisRepository;
 
-    public AuditTools(AuditEventRepository auditEventRepository,
+    public AuditTools(AuditEventService auditEventService,
                       AuditAiAnalysisRepository auditAiAnalysisRepository) {
-        this.auditEventRepository = auditEventRepository;
+        this.auditEventService = auditEventService;
         this.auditAiAnalysisRepository = auditAiAnalysisRepository;
     }
 
-    @Tool(description = "Get the recent audit events for a given user id or actor")
-    public List<Map<String, Object>> getRecentEvents(String userId) {
-        return auditEventRepository.findByActor(userId).stream()
-                .sorted((a, b) -> b.getEventTime().compareTo(a.getEventTime()))
-                .limit(10)
-                .map(this::toEventMap)
-                .collect(Collectors.toList());
-    }
+    @Tool(description = "Fetch the most recent audit events for an actor.")
+    public List<String> getRecentEvents(
+            @ToolParam(description = "Actor username or id") String actor,
+            @ToolParam(description = "Max number of events to return, between 1 and 10") int limit
+    ) {
+        int safeLimit = Math.max(1, Math.min(limit, 10));
+        log.info("[AGENT][TOOL] getRecentEvents actor={} limit={}", actor, safeLimit);
 
-    @Tool(description = "Get high risk AI audit analysis entries for a given user id or actor")
-    public List<Map<String, Object>> getHighRiskEvents(String userId) {
-        List<String> eventIds = auditEventRepository.findByActor(userId).stream()
-                .map(AuditEvent::getId)
-                .collect(Collectors.toList());
-
-        return eventIds.stream()
-                .map(auditAiAnalysisRepository::findByAuditEventId)
-                .filter(java.util.Optional::isPresent)
-                .map(java.util.Optional::get)
-                .filter(analysis -> analysis.getRiskScore() != null && analysis.getRiskScore() >= 7)
-                .sorted((a, b) -> Integer.compare(
-                        b.getRiskScore() != null ? b.getRiskScore() : 0,
-                        a.getRiskScore() != null ? a.getRiskScore() : 0
-                ))
-                .limit(10)
-                .map(this::toAnalysisMap)
-                .collect(Collectors.toList());
-    }
-
-    @Tool(description = "Get failed login or failed status events for a given user id or actor")
-    public List<Map<String, Object>> getFailedLogins(String userId) {
-        return auditEventRepository.findByActor(userId).stream()
-                .filter(event -> event.getStatus() != null && event.getStatus().equalsIgnoreCase("FAILED"))
-                .sorted((a, b) -> b.getEventTime().compareTo(a.getEventTime()))
-                .limit(10)
-                .map(this::toEventMap)
-                .collect(Collectors.toList());
-    }
-
-    @Tool(description = "Get a user security summary based on audit and AI analysis data")
-    public Map<String, Object> getUserSecurityProfile(String userId) {
-        List<AuditEvent> events = auditEventRepository.findByActor(userId);
-
-        long totalEvents = events.size();
-        long failedEvents = events.stream()
-                .filter(event -> event.getStatus() != null && event.getStatus().equalsIgnoreCase("FAILED"))
-                .count();
-
-        List<AuditAiAnalysis> analyses = events.stream()
-                .map(AuditEvent::getId)
-                .map(auditAiAnalysisRepository::findByAuditEventId)
-                .filter(java.util.Optional::isPresent)
-                .map(java.util.Optional::get)
+        List<String> results = auditEventService.getEventsByActor(actor).stream()
+                .sorted(Comparator.comparing(AuditEvent::getEventTime, Comparator.nullsLast(Comparator.naturalOrder())).reversed())
+                .limit(safeLimit)
+                .map(this::toCompactEventText)
                 .toList();
 
-        long highRiskCount = analyses.stream()
-                .filter(a -> a.getRiskScore() != null && a.getRiskScore() >= 7)
-                .count();
-
-        double avgRiskScore = analyses.stream()
-                .filter(a -> a.getRiskScore() != null)
-                .mapToInt(AuditAiAnalysis::getRiskScore)
-                .average()
-                .orElse(0.0);
-
-        AuditEvent latestEvent = events.stream()
-                .sorted((a, b) -> b.getEventTime().compareTo(a.getEventTime()))
-                .findFirst()
-                .orElse(null);
-
-        Map<String, Object> profile = new LinkedHashMap<>();
-        profile.put("userId", userId);
-        profile.put("totalEvents", totalEvents);
-        profile.put("failedEvents", failedEvents);
-        profile.put("highRiskEvents", highRiskCount);
-        profile.put("averageRiskScore", avgRiskScore);
-        profile.put("latestEventTime", latestEvent != null ? latestEvent.getEventTime() : null);
-        profile.put("latestEventType", latestEvent != null ? latestEvent.getEventType() : null);
-
-        return profile;
+        log.info("[AGENT][TOOL] getRecentEvents returned {} rows", results.size());
+        return results;
     }
 
-    private Map<String, Object> toEventMap(AuditEvent event) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        map.put("id", event.getId());
-        map.put("eventType", event.getEventType());
-        map.put("actor", event.getActor());
-        map.put("action", event.getAction());
-        map.put("target", event.getTarget());
-        map.put("status", event.getStatus());
-        map.put("eventTime", event.getEventTime());
-        map.put("metadata", event.getMetadata());
-        return map;
+    @Tool(description = "Fetch previous high risk analyses for an actor based on stored AI analysis.")
+    public List<String> getPreviousHighRiskEvents(
+            @ToolParam(description = "Actor username or id") String actor,
+            @ToolParam(description = "Minimum risk score threshold, e.g. 7") int minRiskScore
+    ) {
+        int safeThreshold = Math.max(1, Math.min(minRiskScore, 10));
+        log.info("[AGENT][TOOL] getPreviousHighRiskEvents actor={} minRiskScore={}", actor, safeThreshold);
+
+        Map<String, AuditEvent> eventMap = auditEventService.getEventsByActor(actor).stream()
+                .collect(Collectors.toMap(AuditEvent::getId, e -> e, (a, b) -> a));
+
+        List<String> results = auditAiAnalysisRepository.findAll().stream()
+                .filter(a -> a.getAuditEventId() != null)
+                .filter(a -> a.getRiskScore() >= safeThreshold)
+                .filter(a -> eventMap.containsKey(a.getAuditEventId()))
+                .sorted(Comparator.comparing(AuditAiAnalysis::getRiskScore).reversed())
+                .limit(5)
+                .map(a -> {
+                    AuditEvent e = eventMap.get(a.getAuditEventId());
+                    return "eventType=" + e.getEventType()
+                            + ", action=" + e.getAction()
+                            + ", target=" + e.getTarget()
+                            + ", status=" + e.getStatus()
+                            + ", riskScore=" + a.getRiskScore()
+                            + ", category=" + a.getCategory()
+                            + ", summary=" + a.getSummary();
+                })
+                .toList();
+
+        log.info("[AGENT][TOOL] getPreviousHighRiskEvents returned {} rows", results.size());
+        return results;
     }
 
-    private Map<String, Object> toAnalysisMap(AuditAiAnalysis analysis) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        map.put("id", analysis.getId());
-        map.put("auditEventId", analysis.getAuditEventId());
-        map.put("riskScore", analysis.getRiskScore());
-        map.put("category", analysis.getCategory());
-        map.put("summary", analysis.getSummary());
-        map.put("reasons", analysis.getReasons());
-        map.put("tags", analysis.getTags());
-        map.put("recommendedAction", analysis.getRecommendedAction());
-        return map;
+    @Tool(description = "Return failed login count estimate for an actor based on metadata in recent login events.")
+    public Integer getFailedLoginCount(
+            @ToolParam(description = "Actor username or id") String actor
+    ) {
+        log.info("[AGENT][TOOL] getFailedLoginCount actor={}", actor);
+
+        int count = auditEventService.getEventsByActor(actor).stream()
+                .filter(e -> "LOGIN".equalsIgnoreCase(e.getEventType()))
+                .map(AuditEvent::getMetadata)
+                .filter(m -> m != null && m.get("failedAttempts") != null)
+                .mapToInt(m -> {
+                    Object value = m.get("failedAttempts");
+                    if (value instanceof Number n) {
+                        return n.intValue();
+                    }
+                    try {
+                        return Integer.parseInt(String.valueOf(value));
+                    } catch (Exception ex) {
+                        return 0;
+                    }
+                })
+                .sum();
+
+        log.info("[AGENT][TOOL] getFailedLoginCount returned {}", count);
+        return count;
+    }
+
+    @Tool(description = "Return a compact user activity summary for the actor.")
+    public String getUserActivitySummary(
+            @ToolParam(description = "Actor username or id") String actor
+    ) {
+        log.info("[AGENT][TOOL] getUserActivitySummary actor={}", actor);
+
+        List<AuditEvent> events = auditEventService.getEventsByActor(actor);
+        long total = events.size();
+        long successful = events.stream().filter(e -> "SUCCESS".equalsIgnoreCase(e.getStatus())).count();
+        long failed = events.stream().filter(e -> "FAILED".equalsIgnoreCase(e.getStatus())).count();
+
+        String summary = "actor=" + actor
+                + ", totalEvents=" + total
+                + ", successCount=" + successful
+                + ", failureCount=" + failed;
+
+        log.info("[AGENT][TOOL] getUserActivitySummary returned summary={}", summary);
+        return summary;
+    }
+
+    private String toCompactEventText(AuditEvent event) {
+        return "eventType=" + event.getEventType()
+                + ", action=" + event.getAction()
+                + ", target=" + event.getTarget()
+                + ", status=" + event.getStatus()
+                + ", eventTime=" + event.getEventTime()
+                + ", metadata=" + event.getMetadata();
     }
 }

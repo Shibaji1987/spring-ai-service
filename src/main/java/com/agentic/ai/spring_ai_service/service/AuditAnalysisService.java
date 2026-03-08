@@ -1,13 +1,11 @@
 package com.agentic.ai.spring_ai_service.service;
 
-import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAiResponse;
 
+import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAiResponse;
 import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAnalysisResultDto;
 import com.agentic.ai.spring_ai_service.audit.mapper.AuditAnalysisMapper;
 import com.agentic.ai.spring_ai_service.audit.model.AuditAiAnalysis;
 import com.agentic.ai.spring_ai_service.audit.model.AuditEvent;
-
-import com.agentic.ai.spring_ai_service.audit.dto.request.AuditAnalyzeRequest;
 import com.agentic.ai.spring_ai_service.audit.repository.AuditAiAnalysisRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
@@ -44,15 +42,16 @@ public class AuditAnalysisService {
         this.objectMapper = objectMapper;
     }
 
-    public AuditAnalysisResultDto analyze(AuditAnalyzeRequest request) {
-        AuditEvent savedEvent = auditEventService.save(request);
+    public AuditAnalysisResultDto analyze(String eventId) {
+        AuditEvent event = auditEventService.getEventById(eventId);
 
-        String aiJson = auditAiService.analyze(savedEvent);
-
+        String aiJson = auditAiService.analyze(event);
         AuditAiResponse parsedResponse = parseAndNormalize(aiJson);
 
-        AuditAiAnalysis analysis = new AuditAiAnalysis();
-        analysis.setAuditEventId(savedEvent.getId());
+        AuditAiAnalysis analysis = auditAiAnalysisRepository.findByAuditEventId(eventId)
+                .orElseGet(AuditAiAnalysis::new);
+
+        analysis.setAuditEventId(eventId);
         analysis.setRiskScore(parsedResponse.getRiskScore());
         analysis.setCategory(parsedResponse.getCategory());
         analysis.setSummary(parsedResponse.getSummary());
@@ -62,7 +61,7 @@ public class AuditAnalysisService {
 
         AuditAiAnalysis savedAnalysis = auditAiAnalysisRepository.save(analysis);
 
-        return AuditAnalysisMapper.toDto(savedEvent, savedAnalysis);
+        return AuditAnalysisMapper.toDto(event, savedAnalysis);
     }
 
     public List<AuditAiAnalysis> getAllAnalysis() {
@@ -104,11 +103,9 @@ public class AuditAnalysisService {
         if (response.getRiskScore() == null) {
             response.setRiskScore(5);
         }
-
         if (response.getRiskScore() < 1) {
             response.setRiskScore(1);
         }
-
         if (response.getRiskScore() > 10) {
             response.setRiskScore(10);
         }

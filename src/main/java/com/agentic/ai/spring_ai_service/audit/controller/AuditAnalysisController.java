@@ -3,7 +3,6 @@ package com.agentic.ai.spring_ai_service.audit.controller;
 
 import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAnalysisResultDto;
 import com.agentic.ai.spring_ai_service.audit.model.AuditAiAnalysis;
-import com.agentic.ai.spring_ai_service.audit.dto.request.AuditAnalyzeRequest;
 import com.agentic.ai.spring_ai_service.service.AuditAnalysisService;
 import org.springframework.web.bind.annotation.*;
 
@@ -19,9 +18,9 @@ public class AuditAnalysisController {
         this.auditAnalysisService = auditAnalysisService;
     }
 
-    @PostMapping("/analyze")
-    public AuditAnalysisResultDto analyze(@RequestBody AuditAnalyzeRequest request) {
-        return auditAnalysisService.analyze(request);
+    @PostMapping("/analyze/{eventId}")
+    public AuditAnalysisResultDto analyze(@PathVariable String eventId) {
+        return auditAnalysisService.analyze(eventId);
     }
 
     @GetMapping("/analysis")
