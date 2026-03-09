@@ -1,7 +1,9 @@
 package com.agentic.ai.spring_ai_service.service;
 
 import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAnalyzeResponse;
+import com.agentic.ai.spring_ai_service.audit.model.AuditAiAnalysis;
 import com.agentic.ai.spring_ai_service.audit.model.AuditEvent;
+import com.agentic.ai.spring_ai_service.audit.repository.AuditAiAnalysisRepository;
 import com.agentic.ai.spring_ai_service.audit.tools.AuditTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,17 +20,21 @@ public class AuditAgentService {
     private final ChatClient chatClient;
     private final AuditEventService auditEventService;
     private final AuditTools auditTools;
+    private final AuditAiAnalysisRepository auditAiAnalysisRepository;
 
     public AuditAgentService(ChatClient.Builder builder,
                              AuditEventService auditEventService,
-                             AuditTools auditTools) {
+                             AuditTools auditTools,
+                             AuditAiAnalysisRepository auditAiAnalysisRepository) {
         this.chatClient = builder.build();
         this.auditEventService = auditEventService;
         this.auditTools = auditTools;
+        this.auditAiAnalysisRepository = auditAiAnalysisRepository;
     }
 
     public AuditAnalyzeResponse analyzeEvent(String event) {
         log.info("[AGENT] simple analyzeEvent started");
+
         AuditAnalyzeResponse response = chatClient.prompt()
                 .system("""
                         You are an Audit Security Analyst AI.
@@ -52,23 +58,26 @@ public class AuditAgentService {
                         """)
                 .user(u -> u.text("""
                         Analyze this audit event:
-
-                        EVENT:
-                        {event}
+                        EVENT: {event}
                         """).param("event", event))
                 .call()
                 .entity(AuditAnalyzeResponse.class);
 
         AuditAnalyzeResponse finalResponse = response != null ? normalize(response) : fallbackResponse();
+
         log.info("[AGENT] simple analyzeEvent completed category={} riskScore={}",
-                finalResponse.category(), finalResponse.riskScore());
+                finalResponse.category(),
+                finalResponse.riskScore());
+
         return finalResponse;
     }
 
     public AuditAnalyzeResponse analyzeEventWithTools(String eventId) {
         AuditEvent event = auditEventService.getEventById(eventId);
 
-        log.info("[AGENT] analyzeEventWithTools started eventId={} actor={}", eventId, event.getActor());
+        log.info("[AGENT] analyzeEventWithTools started eventId={} actor={}",
+                eventId,
+                event.getActor());
         log.info("[AGENT] GOAL analyze existing audit event using tools and current event context");
 
         String eventText = buildEventText(event);
@@ -107,14 +116,9 @@ public class AuditAgentService {
                 .user(u -> u.text("""
                         Analyze this existing audit event.
 
-                        EVENT ID:
-                        {eventId}
-
-                        CURRENT EVENT:
-                        {eventText}
-
-                        ACTOR:
-                        {actor}
+                        EVENT ID: {eventId}
+                        CURRENT EVENT: {eventText}
+                        ACTOR: {actor}
 
                         Use tools when needed before giving the final result.
                         """)
@@ -127,6 +131,8 @@ public class AuditAgentService {
 
         AuditAnalyzeResponse finalResponse = response != null ? normalize(response) : fallbackResponse();
 
+        saveAnalysis(eventId, finalResponse);
+
         log.info("[AGENT] FINAL RESULT eventId={} category={} riskScore={} summary={}",
                 eventId,
                 finalResponse.category(),
@@ -136,14 +142,45 @@ public class AuditAgentService {
         return finalResponse;
     }
 
+    private void saveAnalysis(String eventId, AuditAnalyzeResponse response) {
+        AuditAiAnalysis analysis = auditAiAnalysisRepository.findByAuditEventId(eventId)
+                .orElseGet(AuditAiAnalysis::new);
+
+        analysis.setAuditEventId(eventId);
+        analysis.setRiskScore(response.riskScore());
+        analysis.setCategory(response.category());
+        analysis.setSummary(response.summary());
+        analysis.setReasons(response.reasons());
+        analysis.setTags(response.tags());
+        analysis.setRecommendedAction(response.recommendedAction());
+
+        AuditAiAnalysis saved = auditAiAnalysisRepository.save(analysis);
+
+        log.info("[AGENT] analysis saved for eventId={} analysisId={} category={} riskScore={}",
+                eventId,
+                saved.getId(),
+                saved.getCategory(),
+                saved.getRiskScore());
+    }
+
     private String buildEventText(AuditEvent event) {
-        return "eventType=" + event.getEventType()
-                + ", actor=" + event.getActor()
-                + ", action=" + event.getAction()
-                + ", target=" + event.getTarget()
-                + ", status=" + event.getStatus()
-                + ", eventTime=" + event.getEventTime()
-                + ", metadata=" + event.getMetadata();
+        return """
+                Event Type: %s
+                Actor: %s
+                Action: %s
+                Target: %s
+                Status: %s
+                Event Time: %s
+                Metadata: %s
+                """.formatted(
+                event.getEventType(),
+                event.getActor(),
+                event.getAction(),
+                event.getTarget(),
+                event.getStatus(),
+                event.getEventTime(),
+                event.getMetadata()
+        );
     }
 
     private AuditAnalyzeResponse normalize(AuditAnalyzeResponse response) {

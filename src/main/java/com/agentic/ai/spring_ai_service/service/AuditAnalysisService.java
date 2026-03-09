@@ -3,6 +3,7 @@ package com.agentic.ai.spring_ai_service.service;
 
 import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAiResponse;
 import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAnalysisResultDto;
+import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAnalyzeResponse;
 import com.agentic.ai.spring_ai_service.audit.mapper.AuditAnalysisMapper;
 import com.agentic.ai.spring_ai_service.audit.model.AuditAiAnalysis;
 import com.agentic.ai.spring_ai_service.audit.model.AuditEvent;
@@ -135,5 +136,20 @@ public class AuditAnalysisService {
         }
 
         return response;
+    }
+
+    public AuditAiAnalysis saveAgentAnalysis(String auditEventId, AuditAnalyzeResponse result) {
+        AuditAiAnalysis analysis = auditAiAnalysisRepository.findByAuditEventId(auditEventId)
+                .orElseGet(AuditAiAnalysis::new);
+
+        analysis.setAuditEventId(auditEventId);
+        analysis.setRiskScore(result.riskScore());
+        analysis.setCategory(result.category());
+        analysis.setSummary(result.summary());
+        analysis.setReasons(result.reasons());
+        analysis.setTags(result.tags());
+        analysis.setRecommendedAction(result.recommendedAction());
+
+        return auditAiAnalysisRepository.save(analysis);
     }
 }
