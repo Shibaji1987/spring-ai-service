@@ -7,10 +7,7 @@ import com.agentic.ai.spring_ai_service.audit.repository.KnowledgeDocumentReposi
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Service
 public class KnowledgeIngestionService {
@@ -45,6 +42,10 @@ public class KnowledgeIngestionService {
             Map<String, Object> metadata = new HashMap<>();
             metadata.put("sourceType", savedDocument.getSourceType());
             metadata.put("chunkSize", chunkText.length());
+
+            if (savedDocument.getMetadata() != null && !savedDocument.getMetadata().isEmpty()) {
+                metadata.putAll(savedDocument.getMetadata());
+            }
 
             KnowledgeChunk chunk = new KnowledgeChunk();
             chunk.setDocumentId(savedDocument.getId());
