@@ -5,6 +5,7 @@ import com.agentic.ai.spring_ai_service.audit.dto.agent.ToolExecutionResult;
 import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAnalyzeResponse;
 import com.agentic.ai.spring_ai_service.audit.model.AuditAiAnalysis;
 import com.agentic.ai.spring_ai_service.audit.model.AuditEvent;
+import com.agentic.ai.spring_ai_service.audit.model.KnowledgeChunk;
 import com.agentic.ai.spring_ai_service.audit.repository.AuditAiAnalysisRepository;
 import com.agentic.ai.spring_ai_service.audit.tools.AuditTools;
 import org.slf4j.Logger;
@@ -14,32 +15,35 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 public class AuditAgentService {
 
     private static final Logger log = LoggerFactory.getLogger(AuditAgentService.class);
-
     private static final int MAX_TOOL_CALLS = 3;
+    private static final int TOP_K_POLICY_CHUNKS = 3;
 
     private final ChatClient chatClient;
     private final AuditEventService auditEventService;
     private final AuditTools auditTools;
     private final AuditAiAnalysisRepository auditAiAnalysisRepository;
+    private final KnowledgeRetrievalService knowledgeRetrievalService;
 
     public AuditAgentService(ChatClient.Builder builder,
                              AuditEventService auditEventService,
                              AuditTools auditTools,
-                             AuditAiAnalysisRepository auditAiAnalysisRepository) {
+                             AuditAiAnalysisRepository auditAiAnalysisRepository,
+                             KnowledgeRetrievalService knowledgeRetrievalService) {
         this.chatClient = builder.build();
         this.auditEventService = auditEventService;
         this.auditTools = auditTools;
         this.auditAiAnalysisRepository = auditAiAnalysisRepository;
+        this.knowledgeRetrievalService = knowledgeRetrievalService;
     }
 
     public AuditAnalyzeResponse analyzeEventWithTools(String eventId) {
         AuditEvent auditEvent = auditEventService.getEventById(eventId);
-
         String actor = auditEvent.getActor();
         String eventText = buildEventText(auditEvent);
 
@@ -94,13 +98,14 @@ public class AuditAgentService {
             }
         }
 
+        addKnowledgeContext(eventText, contextChunks, trace);
+
         if (trace.getToolCallsAttempted() >= MAX_TOOL_CALLS) {
             trace.addNote("Tool limit reached.");
             log.warn("[AGENT][{}] bounded stop: maxToolCalls={} reached", trace.getTraceId(), MAX_TOOL_CALLS);
         }
 
         AuditAnalyzeResponse response = generateFinalAnalysis(eventId, actor, eventText, contextChunks, trace);
-
         saveAnalysis(eventId, response);
 
         trace.setStatus(trace.getToolCallsFailed() > 0 ? "PARTIAL_SUCCESS" : "SUCCESS");
@@ -119,13 +124,49 @@ public class AuditAgentService {
         return response;
     }
 
+    private void addKnowledgeContext(String eventText, List<String> contextChunks, AgentExecutionTrace trace) {
+        try {
+            List<KnowledgeChunk> retrievedChunks =
+                    knowledgeRetrievalService.findTopKRelevantChunks(eventText, TOP_K_POLICY_CHUNKS);
+
+            if (retrievedChunks == null || retrievedChunks.isEmpty()) {
+                trace.addNote("No knowledge chunks found for event context.");
+                log.info("[AGENT][{}] no knowledge chunks retrieved", trace.getTraceId());
+                return;
+            }
+
+            String knowledgeContext = retrievedChunks.stream()
+                    .map(chunk -> "[Policy: " + safe(chunk.getDocumentTitle()) + "] " + safe(chunk.getText()))
+                    .collect(Collectors.joining("\n"));
+
+            String matchedPolicies = retrievedChunks.stream()
+                    .map(KnowledgeChunk::getDocumentTitle)
+                    .distinct()
+                    .collect(Collectors.joining(", "));
+
+            contextChunks.add("Relevant policy context:\n" + knowledgeContext);
+            trace.addNote("Knowledge chunks retrieved: " + retrievedChunks.size());
+            trace.addNote("Matched policies: " + matchedPolicies);
+
+            log.info(
+                    "[AGENT][{}] knowledge retrieved chunkCount={} policies={}",
+                    trace.getTraceId(),
+                    retrievedChunks.size(),
+                    matchedPolicies
+            );
+        } catch (Exception ex) {
+            trace.addNote("Knowledge retrieval failed: " + ex.getMessage());
+            log.warn("[AGENT][{}] knowledge retrieval failed error={}", trace.getTraceId(), ex.getMessage());
+        }
+    }
+
     private AuditAnalyzeResponse generateFinalAnalysis(String eventId,
                                                        String actor,
                                                        String eventText,
                                                        List<String> contextChunks,
                                                        AgentExecutionTrace trace) {
         String joinedContext = contextChunks.isEmpty()
-                ? "No additional tool context available."
+                ? "No additional tool or policy context available."
                 : String.join("\n", contextChunks);
 
         AuditAnalyzeResponse response = chatClient.prompt()
@@ -133,9 +174,9 @@ public class AuditAgentService {
                         You are an Audit Security Analyst AI.
 
                         Analyze the current audit event using the supplied context.
-                        Use the extra context only if it is relevant.
+                        Use the additional context only if it is relevant.
                         If some context is missing, still provide the best possible answer.
-
+                        Prefer policy-grounded reasoning whenever policy context is present.
                         Return ONLY the structured output matching the response schema.
 
                         CATEGORY MUST BE EXACTLY ONE OF:
@@ -161,51 +202,55 @@ public class AuditAgentService {
                         {eventText}
 
                         ADDITIONAL CONTEXT:
-                        {toolContext}
+                        {context}
                         """)
                         .param("eventId", eventId)
                         .param("actor", actor)
                         .param("eventText", eventText)
-                        .param("toolContext", joinedContext))
+                        .param("context", joinedContext))
                 .call()
                 .entity(AuditAnalyzeResponse.class);
 
         AuditAnalyzeResponse finalResponse = response != null ? normalize(response) : fallbackResponse();
 
-        log.info("[AGENT][{}] final category={} riskScore={} summary={}",
+        log.info(
+                "[AGENT][{}] final category={} riskScore={} summary={}",
                 trace.getTraceId(),
                 finalResponse.category(),
                 finalResponse.riskScore(),
-                finalResponse.summary());
+                finalResponse.summary()
+        );
 
         return finalResponse;
     }
 
-    private ToolExecutionResult safeToolCall(String toolName,
-                                             AgentExecutionTrace trace,
-                                             ToolSupplier supplier) {
+    private ToolExecutionResult safeToolCall(String toolName, AgentExecutionTrace trace, ToolSupplier supplier) {
         trace.incrementAttempted();
         trace.addTool(toolName);
 
         long start = System.currentTimeMillis();
         try {
             log.info("[AGENT][{}] calling tool={}", trace.getTraceId(), toolName);
-
             Object data = supplier.get();
-
             long duration = System.currentTimeMillis() - start;
-            trace.incrementSucceeded();
 
+            trace.incrementSucceeded();
             log.info("[AGENT][{}] tool={} success durationMs={}", trace.getTraceId(), toolName, duration);
 
             return ToolExecutionResult.success(toolName, data, duration);
         } catch (Exception ex) {
             long duration = System.currentTimeMillis() - start;
+
             trace.incrementFailed();
             trace.addNote("Tool failed: " + toolName + " -> " + ex.getMessage());
 
-            log.warn("[AGENT][{}] tool={} failed durationMs={} error={}",
-                    trace.getTraceId(), toolName, duration, ex.getMessage());
+            log.warn(
+                    "[AGENT][{}] tool={} failed durationMs={} error={}",
+                    trace.getTraceId(),
+                    toolName,
+                    duration,
+                    ex.getMessage()
+            );
 
             return ToolExecutionResult.failure(toolName, ex.getMessage(), duration);
         }
@@ -225,8 +270,13 @@ public class AuditAgentService {
 
         AuditAiAnalysis saved = auditAiAnalysisRepository.save(analysis);
 
-        log.info("[AGENT] analysis saved eventId={} analysisId={} category={} riskScore={}",
-                eventId, saved.getId(), saved.getCategory(), saved.getRiskScore());
+        log.info(
+                "[AGENT] analysis saved eventId={} analysisId={} category={} riskScore={}",
+                eventId,
+                saved.getId(),
+                saved.getCategory(),
+                saved.getRiskScore()
+        );
     }
 
     private boolean isLoginEvent(AuditEvent event) {
@@ -303,6 +353,10 @@ public class AuditAgentService {
                 List.of("fallback"),
                 "Review the event manually."
         );
+    }
+
+    private String safe(String value) {
+        return value != null ? value : "";
     }
 
     @FunctionalInterface
