@@ -1,5 +1,7 @@
 package com.agentic.ai.spring_ai_service.audit.model;
 
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
@@ -7,13 +9,17 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
+@Getter
+@Setter
 @Document(collection = "knowledge_chunks")
 public class KnowledgeChunk {
 
     @Id
     private String id;
 
+    @Setter
     private String documentId;
+    @Setter
     private String documentTitle;
     private Integer chunkIndex;
     private String text;
@@ -40,63 +46,17 @@ public class KnowledgeChunk {
         this.createdAt = LocalDateTime.now();
     }
 
-    public String getId() {
-        return id;
-    }
-
-    public String getDocumentId() {
-        return documentId;
-    }
-
-    public String getDocumentTitle() {
-        return documentTitle;
-    }
-
-    public Integer getChunkIndex() {
-        return chunkIndex;
-    }
-
-    public String getText() {
-        return text;
-    }
-
-    public List<Double> getEmbedding() {
-        return embedding;
-    }
-
-    public Map<String, Object> getMetadata() {
-        return metadata;
-    }
-
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setDocumentId(String documentId) {
-        this.documentId = documentId;
-    }
-
-    public void setDocumentTitle(String documentTitle) {
-        this.documentTitle = documentTitle;
-    }
-
-    public void setChunkIndex(Integer chunkIndex) {
-        this.chunkIndex = chunkIndex;
-    }
-
-    public void setText(String text) {
-        this.text = text;
-    }
-
-    public void setEmbedding(List<Double> embedding) {
-        this.embedding = embedding;
-    }
-
-    public void setMetadata(Map<String, Object> metadata) {
-        this.metadata = metadata;
-    }
-
-    public void setCreatedAt(LocalDateTime createdAt) {
-        this.createdAt = createdAt;
+    @Override
+    public String toString() {
+        return "KnowledgeChunk{" +
+                "id='" + id + '\'' +
+                ", documentId='" + documentId + '\'' +
+                ", documentTitle='" + documentTitle + '\'' +
+                ", chunkIndex=" + chunkIndex +
+                ", text='" + text + '\'' +
+                ", embedding=" + embedding +
+                ", metadata=" + metadata +
+                ", createdAt=" + createdAt +
+                '}';
     }
 }

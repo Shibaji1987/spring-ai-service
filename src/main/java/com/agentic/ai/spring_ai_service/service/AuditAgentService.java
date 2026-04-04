@@ -126,8 +126,10 @@ public class AuditAgentService {
 
     private void addKnowledgeContext(String eventText, List<String> contextChunks, AgentExecutionTrace trace) {
         try {
+            //log.info(" Inputs received==> {},{},{}", eventText , contextChunks , trace);
             List<KnowledgeChunk> retrievedChunks =
                     knowledgeRetrievalService.findTopKRelevantChunks(eventText, TOP_K_POLICY_CHUNKS);
+            //log.info("retrieved chunks ==> {}", retrievedChunks);
 
             if (retrievedChunks == null || retrievedChunks.isEmpty()) {
                 trace.addNote("No knowledge chunks found for event context.");

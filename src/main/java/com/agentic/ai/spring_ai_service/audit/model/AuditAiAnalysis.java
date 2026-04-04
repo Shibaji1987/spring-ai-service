@@ -1,80 +1,50 @@
 package com.agentic.ai.spring_ai_service.audit.model;
 
+import lombok.*;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
-@Document(collection = "audit_ai_analysis")
+@Document("audit_ai_analysis")
+@Getter
+@Setter
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class AuditAiAnalysis {
 
     @Id
     private String id;
-    private String auditEventId;
-    private Integer riskScore;
-    private String category;
+
+    private String eventId;
+
+    private Integer riskScore;              // 0-100
+    private String category;                // benign, suspicious, high_risk, critical
+    private Double confidenceScore;         // 0.0 - 1.0
+    private String confidenceLabel;         // LOW, MEDIUM, HIGH
+
     private String summary;
     private List<String> reasons;
     private List<String> tags;
     private String recommendedAction;
 
-    public String getId() {
-        return id;
-    }
+    private Boolean grounded;
+    private Boolean fallbackUsed;
+    private Boolean toolsInvoked;
+    private Boolean analysisSucceeded;
 
-    public String getAuditEventId() {
-        return auditEventId;
-    }
+    private String modelName;
+    private String analysisVersion;         // e.g. v2.0.0
+    private Instant analyzedAt;
 
-    public void setAuditEventId(String auditEventId) {
-        this.auditEventId = auditEventId;
-    }
+    private List<MatchedPolicyEvidence> matchedPolicyEvidence;
+    private List<ToolExecutionRecord> toolExecutions;
 
-    public Integer getRiskScore() {
-        return riskScore;
-    }
+    private AnalysisDiagnostics diagnostics;
 
-    public void setRiskScore(Integer riskScore) {
-        this.riskScore = riskScore;
-    }
-
-    public String getCategory() {
-        return category;
-    }
-
-    public void setCategory(String category) {
-        this.category = category;
-    }
-
-    public String getSummary() {
-        return summary;
-    }
-
-    public void setSummary(String summary) {
-        this.summary = summary;
-    }
-
-    public List<String> getReasons() {
-        return reasons;
-    }
-
-    public void setReasons(List<String> reasons) {
-        this.reasons = reasons;
-    }
-
-    public List<String> getTags() {
-        return tags;
-    }
-
-    public void setTags(List<String> tags) {
-        this.tags = tags;
-    }
-
-    public String getRecommendedAction() {
-        return recommendedAction;
-    }
-
-    public void setRecommendedAction(String recommendedAction) {
-        this.recommendedAction = recommendedAction;
-    }
+    private Map<String, Object> rawStructuredResponse; // optional for debugging
 }
