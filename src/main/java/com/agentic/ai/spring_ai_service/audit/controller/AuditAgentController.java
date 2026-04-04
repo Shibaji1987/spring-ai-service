@@ -22,4 +22,9 @@ public class AuditAgentController {
         log.info("Invoking Agent");
         return auditAgentService.analyzeEventWithTools(eventId);
     }
+
+    @PostMapping("/analyze-with-llm-tools/{eventId}")
+    public String analyzeWithLlmTools(@PathVariable String eventId) {
+        return auditAgentService.analyzeEventWithLlmDrivenTools(eventId);
+    }
 }

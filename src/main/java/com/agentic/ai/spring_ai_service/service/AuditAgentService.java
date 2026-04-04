@@ -76,17 +76,6 @@ public class AuditAgentService {
             }
         }
 
-        if (trace.getToolCallsAttempted() < MAX_TOOL_CALLS && looksSuspicious(auditEvent)) {
-            ToolExecutionResult highRiskResult = safeToolCall(
-                    "getPreviousHighRiskEvents",
-                    trace,
-                    () -> auditTools.getPreviousHighRiskEvents(actor, 7)
-            );
-            if (highRiskResult.success()) {
-                contextChunks.add("Previous high risk events: " + highRiskResult.data());
-            }
-        }
-
         if (trace.getToolCallsAttempted() < MAX_TOOL_CALLS && needsRecentSequence(auditEvent)) {
             ToolExecutionResult recentEventsResult = safeToolCall(
                     "getRecentEvents",
@@ -365,4 +354,78 @@ public class AuditAgentService {
     private interface ToolSupplier {
         Object get();
     }
+
+    public String analyzeEventWithLlmDrivenTools(String eventId) {
+
+        AuditEvent event = auditEventService.getEventById(eventId);
+
+        String query = """
+            Event Type: %s
+            Actor: %s
+            Action: %s
+            Target: %s
+            Status: %s
+            Event Time: %s
+            Metadata: %s
+            """.formatted(
+                event.getEventType(),
+                event.getActor(),
+                event.getAction(),
+                event.getTarget(),
+                event.getStatus(),
+                event.getEventTime(),
+                event.getMetadata()
+        );
+
+        var retrievedChunks = knowledgeRetrievalService.findTopKRelevantChunks(query, 3);
+
+        String policies = retrievedChunks.stream()
+                .map(chunk -> "- " + chunk.getDocumentTitle() + ": " + chunk.getText())
+                .collect(java.util.stream.Collectors.joining("\n"));
+
+        String systemPrompt = """
+            You are an intelligent audit investigation assistant.
+
+            You have access to tools that can help investigate suspicious events.
+
+            Available tools:
+            1. getUserActivitySummary(actor)
+            2. getFailedLoginCount(actor)
+            3. getRecentEvents(actor, limit)
+
+            Tool rules:
+            - For clearly benign successful logins, avoid unnecessary tool calls
+            - Use tools when historical user activity helps confidence
+            - Always return final response in JSON format
+
+            Output JSON:
+            {
+              "riskScore": 0,
+              "category": "benign",
+              "summary": "string",
+              "reasons": ["string"],
+              "tags": ["string"],
+              "recommendedAction": "string"
+            }
+            """;
+
+        String userPrompt = """
+            Analyze this audit event.
+
+            Event:
+            %s
+
+            Policy Evidence:
+            %s
+            """.formatted(query, policies);
+
+        return chatClient.prompt()
+                .system(systemPrompt)
+                .user(userPrompt)
+                .tools(auditTools)
+                .call()
+                .content();
+    }
+
+
 }
