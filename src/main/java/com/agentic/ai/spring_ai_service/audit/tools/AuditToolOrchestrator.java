@@ -15,17 +15,23 @@ public class AuditToolOrchestrator {
 
     private final InvestigationToolGateway investigationToolGateway;
 
-    public ToolOrchestrationResult executeRequestedTools(AuditContext context,
-                                                         AuditAnalysisStructuredResponse initialResponse) {
-
+    public ToolOrchestrationResult executeRequestedTools(
+            AuditContext context,
+            AuditAnalysisStructuredResponse initialResponse
+    ) {
         List<ToolExecutionRecord> executions = new ArrayList<>();
         List<String> toolSummaries = new ArrayList<>();
+
+        if (initialResponse == null) {
+            return new ToolOrchestrationResult(false, executions, toolSummaries);
+        }
 
         if (initialResponse.getNeedsInvestigation() == null || !initialResponse.getNeedsInvestigation()) {
             return new ToolOrchestrationResult(false, executions, toolSummaries);
         }
 
-        if (initialResponse.getRequestedInvestigations() == null) {
+        if (initialResponse.getRequestedInvestigations() == null
+                || initialResponse.getRequestedInvestigations().isEmpty()) {
             return new ToolOrchestrationResult(false, executions, toolSummaries);
         }
 
@@ -36,11 +42,12 @@ public class AuditToolOrchestrator {
             );
 
             executions.add(result.executionRecord());
-            if (result.summaryText() != null) {
+
+            if (result.summaryText() != null && !result.summaryText().isBlank()) {
                 toolSummaries.add(result.summaryText());
             }
         }
 
-        return new ToolOrchestrationResult(!executions.isEmpty(), executions, toolSummaries);
+        return new ToolOrchestrationResult(true, executions, toolSummaries);
     }
 }

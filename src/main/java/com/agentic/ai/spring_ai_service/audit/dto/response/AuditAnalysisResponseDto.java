@@ -1,5 +1,7 @@
 package com.example.audit.dto.response;
 
+import com.agentic.ai.spring_ai_service.audit.dto.response.MatchedPolicyEvidenceDto;
+import com.agentic.ai.spring_ai_service.audit.dto.response.ToolExecutionDto;
 import lombok.*;
 
 import java.time.Instant;

@@ -262,7 +262,7 @@ public class AuditAgentService {
         AuditAiAnalysis analysis = auditAiAnalysisRepository.findByAuditEventId(eventId)
                 .orElseGet(AuditAiAnalysis::new);
 
-        analysis.setAuditEventId(eventId);
+        analysis.setEventId(eventId);
         analysis.setRiskScore(response.riskScore());
         analysis.setCategory(response.category());
         analysis.setSummary(response.summary());

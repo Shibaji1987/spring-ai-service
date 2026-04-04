@@ -52,7 +52,7 @@ public class AuditAnalysisService {
         AuditAiAnalysis analysis = auditAiAnalysisRepository.findByAuditEventId(eventId)
                 .orElseGet(AuditAiAnalysis::new);
 
-        analysis.setAuditEventId(eventId);
+        analysis.setEventId(eventId);
         analysis.setRiskScore(parsedResponse.getRiskScore());
         analysis.setCategory(parsedResponse.getCategory());
         analysis.setSummary(parsedResponse.getSummary());
@@ -142,7 +142,7 @@ public class AuditAnalysisService {
         AuditAiAnalysis analysis = auditAiAnalysisRepository.findByAuditEventId(auditEventId)
                 .orElseGet(AuditAiAnalysis::new);
 
-        analysis.setAuditEventId(auditEventId);
+        analysis.setEventId(auditEventId);
         analysis.setRiskScore(result.riskScore());
         analysis.setCategory(result.category());
         analysis.setSummary(result.summary());

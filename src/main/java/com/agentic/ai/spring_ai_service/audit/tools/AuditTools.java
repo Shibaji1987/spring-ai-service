@@ -59,13 +59,13 @@ public class AuditTools {
                 .collect(Collectors.toMap(AuditEvent::getId, e -> e, (a, b) -> a));
 
         List<String> results = auditAiAnalysisRepository.findAll().stream()
-                .filter(a -> a.getAuditEventId() != null)
+                .filter(a -> a.getEventId() != null)
                 .filter(a -> a.getRiskScore() >= safeThreshold)
-                .filter(a -> eventMap.containsKey(a.getAuditEventId()))
+                .filter(a -> eventMap.containsKey(a.getEventId()))
                 .sorted(Comparator.comparing(AuditAiAnalysis::getRiskScore).reversed())
                 .limit(5)
                 .map(a -> {
-                    AuditEvent e = eventMap.get(a.getAuditEventId());
+                    AuditEvent e = eventMap.get(a.getEventId());
                     return "eventType=" + e.getEventType()
                             + ", action=" + e.getAction()
                             + ", target=" + e.getTarget()
