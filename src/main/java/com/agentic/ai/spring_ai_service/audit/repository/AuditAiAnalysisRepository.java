@@ -9,7 +9,7 @@ import java.util.Optional;
 
 public interface AuditAiAnalysisRepository extends MongoRepository<AuditAiAnalysis, String> {
 
-    Optional<AuditAiAnalysis> findByAuditEventId(String auditEventId);
+    Optional<AuditAiAnalysis> findByEventId(String auditEventId);
     List<AuditAiAnalysis> findByCategory(String category);
 
 }

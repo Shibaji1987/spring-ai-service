@@ -49,7 +49,7 @@ public class AuditAnalysisService {
         String aiJson = auditAiService.analyze(event);
         AuditAiResponse parsedResponse = parseAndNormalize(aiJson);
 
-        AuditAiAnalysis analysis = auditAiAnalysisRepository.findByAuditEventId(eventId)
+        AuditAiAnalysis analysis = auditAiAnalysisRepository.findByEventId(eventId)
                 .orElseGet(AuditAiAnalysis::new);
 
         analysis.setEventId(eventId);
@@ -70,7 +70,7 @@ public class AuditAnalysisService {
     }
 
     public AuditAiAnalysis getAnalysisByEventId(String auditEventId) {
-        return auditAiAnalysisRepository.findByAuditEventId(auditEventId)
+        return auditAiAnalysisRepository.findByEventId(auditEventId)
                 .orElseThrow(() -> new RuntimeException("AI analysis not found for eventId: " + auditEventId));
     }
 
@@ -139,7 +139,7 @@ public class AuditAnalysisService {
     }
 
     public AuditAiAnalysis saveAgentAnalysis(String auditEventId, AuditAnalyzeResponse result) {
-        AuditAiAnalysis analysis = auditAiAnalysisRepository.findByAuditEventId(auditEventId)
+        AuditAiAnalysis analysis = auditAiAnalysisRepository.findByEventId(auditEventId)
                 .orElseGet(AuditAiAnalysis::new);
 
         analysis.setEventId(auditEventId);

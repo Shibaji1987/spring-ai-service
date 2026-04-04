@@ -259,7 +259,7 @@ public class AuditAgentService {
     }
 
     private void saveAnalysis(String eventId, AuditAnalyzeResponse response) {
-        AuditAiAnalysis analysis = auditAiAnalysisRepository.findByAuditEventId(eventId)
+        AuditAiAnalysis analysis = auditAiAnalysisRepository.findByEventId(eventId)
                 .orElseGet(AuditAiAnalysis::new);
 
         analysis.setEventId(eventId);
