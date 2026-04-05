@@ -1,280 +1,436 @@
 package com.agentic.ai.spring_ai_service.service;
 
-import com.agentic.ai.spring_ai_service.audit.dto.agent.AgentExecutionTrace;
-import com.agentic.ai.spring_ai_service.audit.dto.agent.ToolExecutionResult;
-import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAnalyzeResponse;
+import com.agentic.ai.spring_ai_service.audit.dto.agent.AgentFinalizePayload;
+import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAnalysisResponseDto;
+import com.agentic.ai.spring_ai_service.audit.mapper.AuditAnalysisMapper;
+import com.agentic.ai.spring_ai_service.audit.model.AnalysisDiagnostics;
 import com.agentic.ai.spring_ai_service.audit.model.AuditAiAnalysis;
 import com.agentic.ai.spring_ai_service.audit.model.AuditEvent;
 import com.agentic.ai.spring_ai_service.audit.model.KnowledgeChunk;
-import com.agentic.ai.spring_ai_service.audit.repository.AuditAiAnalysisRepository;
+import com.agentic.ai.spring_ai_service.audit.model.MatchedPolicyEvidence;
+import com.agentic.ai.spring_ai_service.audit.model.ToolExecutionRecord;
+import com.agentic.ai.spring_ai_service.audit.orchestrator.BoundedReActOrchestrator;
+import com.agentic.ai.spring_ai_service.audit.orchestrator.ReActExecutionResult;
 import com.agentic.ai.spring_ai_service.audit.tools.AuditTools;
+import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
+@RequiredArgsConstructor
 public class AuditAgentService {
 
     private static final Logger log = LoggerFactory.getLogger(AuditAgentService.class);
+
     private static final int MAX_TOOL_CALLS = 3;
     private static final int TOP_K_POLICY_CHUNKS = 3;
 
-    private final ChatClient chatClient;
+    private final ChatClient.Builder chatClientBuilder;
     private final AuditEventService auditEventService;
     private final AuditTools auditTools;
-    private final AuditAiAnalysisRepository auditAiAnalysisRepository;
     private final KnowledgeRetrievalService knowledgeRetrievalService;
 
-    public AuditAgentService(ChatClient.Builder builder,
-                             AuditEventService auditEventService,
-                             AuditTools auditTools,
-                             AuditAiAnalysisRepository auditAiAnalysisRepository,
-                             KnowledgeRetrievalService knowledgeRetrievalService) {
-        this.chatClient = builder.build();
-        this.auditEventService = auditEventService;
-        this.auditTools = auditTools;
-        this.auditAiAnalysisRepository = auditAiAnalysisRepository;
-        this.knowledgeRetrievalService = knowledgeRetrievalService;
-    }
+    private final AuditAnalysisPersistenceService auditAnalysisPersistenceService;
+    private final AnalysisConfidenceService analysisConfidenceService;
+    private final AnalysisResponseValidator analysisResponseValidator;
+    private final AuditAnalysisMapper auditAnalysisMapper;
+    private final BoundedReActOrchestrator boundedReActOrchestrator;
 
-    public AuditAnalyzeResponse analyzeEventWithTools(String eventId) {
+    /**
+     * Base deterministic analysis without tool execution.
+     */
+    public AuditAnalysisResponseDto analyzeEvent(String eventId) {
         AuditEvent auditEvent = auditEventService.getEventById(eventId);
-        String actor = auditEvent.getActor();
         String eventText = buildEventText(auditEvent);
 
-        AgentExecutionTrace trace = new AgentExecutionTrace();
-        trace.setEventId(eventId);
-        trace.setActor(actor);
-        trace.setMaxToolCalls(MAX_TOOL_CALLS);
+        List<MatchedPolicyEvidence> matchedPolicyEvidence = retrievePolicyEvidence(eventText);
+        boolean grounded = !matchedPolicyEvidence.isEmpty();
 
-        log.info("[AGENT][{}] started eventId={} actor={}", trace.getTraceId(), eventId, actor);
+        AgentFinalizePayload finalPayload = generateDeterministicPayload(auditEvent, matchedPolicyEvidence);
+        finalPayload = analysisResponseValidator.normalize(finalPayload);
 
-        List<String> contextChunks = new ArrayList<>();
-
-        ToolExecutionResult summaryResult = safeToolCall(
-                "getUserActivitySummary",
-                trace,
-                () -> auditTools.getUserActivitySummary(actor)
+        double confidenceScore = analysisConfidenceService.computeConfidenceScore(
+                matchedPolicyEvidence.size(),
+                0,
+                Boolean.TRUE.equals(finalPayload.getFallbackUsed()),
+                grounded,
+                safeRiskScore(finalPayload)
         );
-        if (summaryResult.success()) {
-            contextChunks.add("User activity summary: " + summaryResult.data());
-        }
+        finalPayload.setConfidenceScore(confidenceScore);
+        finalPayload.setConfidenceLabel(analysisConfidenceService.toConfidenceLabel(confidenceScore));
 
-        if (trace.getToolCallsAttempted() < MAX_TOOL_CALLS && isLoginEvent(auditEvent)) {
-            ToolExecutionResult failedLoginResult = safeToolCall(
-                    "getFailedLoginCount",
-                    trace,
-                    () -> auditTools.getFailedLoginCount(actor)
-            );
-            if (failedLoginResult.success()) {
-                contextChunks.add("Failed login count: " + failedLoginResult.data());
-            }
-        }
+        AnalysisDiagnostics diagnostics = AnalysisDiagnostics.builder()
+                .retrievedChunkCount(matchedPolicyEvidence.size())
+                .evidenceUsedCount(matchedPolicyEvidence.size())
+                .toolsRequestedCount(0)
+                .toolsExecutedCount(0)
+                .reasoningIterations(0)
+                .maxReasoningIterations(0)
+                .reasoningTruncated(false)
+                .orchestrationMode("deterministic")
+                .fallbackReason(Boolean.TRUE.equals(finalPayload.getFallbackUsed()) ? "deterministic_fallback" : null)
+                .validatorStatus("OK")
+                .scoringNotes("Confidence derived from retrieval grounding and deterministic scoring.")
+                .build();
 
-        if (trace.getToolCallsAttempted() < MAX_TOOL_CALLS && needsRecentSequence(auditEvent)) {
-            ToolExecutionResult recentEventsResult = safeToolCall(
-                    "getRecentEvents",
-                    trace,
-                    () -> auditTools.getRecentEvents(actor, 5)
-            );
-            if (recentEventsResult.success()) {
-                contextChunks.add("Recent events: " + recentEventsResult.data());
-            }
-        }
-
-        addKnowledgeContext(eventText, contextChunks, trace);
-
-        if (trace.getToolCallsAttempted() >= MAX_TOOL_CALLS) {
-            trace.addNote("Tool limit reached.");
-            log.warn("[AGENT][{}] bounded stop: maxToolCalls={} reached", trace.getTraceId(), MAX_TOOL_CALLS);
-        }
-
-        AuditAnalyzeResponse response = generateFinalAnalysis(eventId, actor, eventText, contextChunks, trace);
-        saveAnalysis(eventId, response);
-
-        trace.setStatus(trace.getToolCallsFailed() > 0 ? "PARTIAL_SUCCESS" : "SUCCESS");
-        trace.finish();
-
-        log.info(
-                "[AGENT][{}] completed status={} attempted={} succeeded={} failed={} toolsUsed={}",
-                trace.getTraceId(),
-                trace.getStatus(),
-                trace.getToolCallsAttempted(),
-                trace.getToolCallsSucceeded(),
-                trace.getToolCallsFailed(),
-                trace.getToolsUsed()
+        AuditAiAnalysis saved = auditAnalysisPersistenceService.upsertAnalysis(
+                eventId,
+                finalPayload,
+                matchedPolicyEvidence,
+                List.of(),
+                List.of(),
+                diagnostics,
+                grounded,
+                Boolean.TRUE.equals(finalPayload.getFallbackUsed()),
+                false,
+                true,
+                "deterministic-engine",
+                "v3.0.0"
         );
 
-        return response;
+        return auditAnalysisMapper.toDto(saved);
     }
 
-    private void addKnowledgeContext(String eventText, List<String> contextChunks, AgentExecutionTrace trace) {
+    /**
+     * Deterministic + tool-assisted analysis.
+     */
+    public AuditAnalysisResponseDto analyzeEventWithTools(String eventId) {
+        AuditEvent auditEvent = auditEventService.getEventById(eventId);
+        String actor = safe(auditEvent.getActor());
+        String eventText = buildEventText(auditEvent);
+
+        List<MatchedPolicyEvidence> matchedPolicyEvidence = retrievePolicyEvidence(eventText);
+        List<ToolExecutionRecord> toolExecutions = new ArrayList<>();
+        List<String> toolObservations = new ArrayList<>();
+
+        safeToolCall(
+                toolExecutions,
+                "getUserActivitySummary",
+                "actor=" + actor,
+                () -> auditTools.getUserActivitySummary(actor)
+        ).ifPresent(toolObservations::add);
+
+        if (toolExecutions.size() < MAX_TOOL_CALLS && isLoginEvent(auditEvent)) {
+            safeToolCall(
+                    toolExecutions,
+                    "getFailedLoginCount",
+                    "actor=" + actor,
+                    () -> auditTools.getFailedLoginCount(actor)
+            ).ifPresent(toolObservations::add);
+        }
+
+        if (toolExecutions.size() < MAX_TOOL_CALLS && needsRecentSequence(auditEvent)) {
+            safeToolCall(
+                    toolExecutions,
+                    "getRecentEvents",
+                    "actor=" + actor + ", limit=5",
+                    () -> auditTools.getRecentEvents(actor, 5)
+            ).ifPresent(toolObservations::add);
+        }
+
+        AgentFinalizePayload finalPayload = generateToolAwarePayload(auditEvent, matchedPolicyEvidence, toolObservations);
+        finalPayload = analysisResponseValidator.normalize(finalPayload);
+
+        int successfulToolCount = (int) toolExecutions.stream()
+                .filter(t -> Boolean.TRUE.equals(t.getSuccess()))
+                .count();
+
+        boolean grounded = !matchedPolicyEvidence.isEmpty();
+        boolean fallbackUsed = Boolean.TRUE.equals(finalPayload.getFallbackUsed());
+
+        double confidenceScore = analysisConfidenceService.computeConfidenceScore(
+                matchedPolicyEvidence.size(),
+                successfulToolCount,
+                fallbackUsed,
+                grounded,
+                safeRiskScore(finalPayload)
+        );
+        finalPayload.setConfidenceScore(confidenceScore);
+        finalPayload.setConfidenceLabel(analysisConfidenceService.toConfidenceLabel(confidenceScore));
+
+        AnalysisDiagnostics diagnostics = AnalysisDiagnostics.builder()
+                .retrievedChunkCount(matchedPolicyEvidence.size())
+                .evidenceUsedCount(matchedPolicyEvidence.size())
+                .toolsRequestedCount(toolExecutions.size())
+                .toolsExecutedCount(toolExecutions.size())
+                .reasoningIterations(0)
+                .maxReasoningIterations(0)
+                .reasoningTruncated(false)
+                .orchestrationMode("llm_tools")
+                .fallbackReason(fallbackUsed ? "tool_flow_fallback" : null)
+                .validatorStatus("OK")
+                .scoringNotes("Confidence derived from evidence count, successful tools, grounding, fallback, and risk score.")
+                .build();
+
+        AuditAiAnalysis saved = auditAnalysisPersistenceService.upsertAnalysis(
+                eventId,
+                finalPayload,
+                matchedPolicyEvidence,
+                toolExecutions,
+                List.of(),
+                diagnostics,
+                grounded,
+                fallbackUsed,
+                !toolExecutions.isEmpty(),
+                true,
+                "openai-via-spring-ai",
+                "v3.0.0"
+        );
+
+        return auditAnalysisMapper.toDto(saved);
+    }
+
+    /**
+     * Bounded ReAct analysis with persisted reasoning trace.
+     */
+    public AuditAnalysisResponseDto analyzeEventWithLlmTools(String eventId) {
+        AuditEvent auditEvent = auditEventService.getEventById(eventId);
+        String eventText = buildEventText(auditEvent);
+
+        List<MatchedPolicyEvidence> matchedPolicyEvidence = retrievePolicyEvidence(eventText);
+
+        ReActExecutionResult result = boundedReActOrchestrator.execute(
+                eventId,
+                auditEvent,
+                matchedPolicyEvidence
+        );
+
+        AuditAiAnalysis saved = auditAnalysisPersistenceService.upsertAnalysis(
+                eventId,
+                result.getFinalPayload(),
+                result.getMatchedPolicyEvidence(),
+                result.getToolExecutions(),
+                result.getReasoningTrace(),
+                result.getDiagnostics(),
+                result.isGrounded(),
+                result.isFallbackUsed(),
+                result.isToolsInvoked(),
+                result.isAnalysisSucceeded(),
+                "openai-via-spring-ai",
+                "v3.0.0"
+        );
+
+        return auditAnalysisMapper.toDto(saved);
+    }
+
+    /**
+     * Optional compatibility method if your controller still calls the old name.
+     */
+    public AuditAnalysisResponseDto analyzeEventWithLlmDrivenTools(String eventId) {
+        return analyzeEventWithLlmTools(eventId);
+    }
+
+    private List<MatchedPolicyEvidence> retrievePolicyEvidence(String eventText) {
         try {
-            //log.info(" Inputs received==> {},{},{}", eventText , contextChunks , trace);
-            List<KnowledgeChunk> retrievedChunks =
-                    knowledgeRetrievalService.findTopKRelevantChunks(eventText, TOP_K_POLICY_CHUNKS);
-            //log.info("retrieved chunks ==> {}", retrievedChunks);
+            List<KnowledgeChunk> retrievedChunks = knowledgeRetrievalService.findTopKRelevantChunks(eventText, TOP_K_POLICY_CHUNKS);
 
             if (retrievedChunks == null || retrievedChunks.isEmpty()) {
-                trace.addNote("No knowledge chunks found for event context.");
-                log.info("[AGENT][{}] no knowledge chunks retrieved", trace.getTraceId());
-                return;
+                return List.of();
             }
 
-            String knowledgeContext = retrievedChunks.stream()
-                    .map(chunk -> "[Policy: " + safe(chunk.getDocumentTitle()) + "] " + safe(chunk.getText()))
-                    .collect(Collectors.joining("\n"));
+            return retrievedChunks.stream()
+                    .map(chunk -> MatchedPolicyEvidence.builder()
+                            .policyName(safe(chunk.getDocumentTitle()))
+                            .excerpt(safe(trimToLength(chunk.getText(), 500)))
+                            .relevanceScore(null)
+                            .sourceChunkId(chunk.getId())
+                            .build())
+                    .collect(Collectors.toList());
 
-            String matchedPolicies = retrievedChunks.stream()
-                    .map(KnowledgeChunk::getDocumentTitle)
-                    .distinct()
-                    .collect(Collectors.joining(", "));
-
-            contextChunks.add("Relevant policy context:\n" + knowledgeContext);
-            trace.addNote("Knowledge chunks retrieved: " + retrievedChunks.size());
-            trace.addNote("Matched policies: " + matchedPolicies);
-
-            log.info(
-                    "[AGENT][{}] knowledge retrieved chunkCount={} policies={}",
-                    trace.getTraceId(),
-                    retrievedChunks.size(),
-                    matchedPolicies
-            );
         } catch (Exception ex) {
-            trace.addNote("Knowledge retrieval failed: " + ex.getMessage());
-            log.warn("[AGENT][{}] knowledge retrieval failed error={}", trace.getTraceId(), ex.getMessage());
+            log.warn("Policy retrieval failed for analysis. error={}", ex.getMessage());
+            return List.of();
         }
     }
 
-    private AuditAnalyzeResponse generateFinalAnalysis(String eventId,
-                                                       String actor,
-                                                       String eventText,
-                                                       List<String> contextChunks,
-                                                       AgentExecutionTrace trace) {
-        String joinedContext = contextChunks.isEmpty()
-                ? "No additional tool or policy context available."
-                : String.join("\n", contextChunks);
+    private AgentFinalizePayload generateDeterministicPayload(
+            AuditEvent event,
+            List<MatchedPolicyEvidence> matchedPolicyEvidence
+    ) {
+        boolean suspicious = looksSuspicious(event);
+        boolean loginEvent = isLoginEvent(event);
+        boolean adminAction = looksAdminAction(event);
+        boolean grounded = matchedPolicyEvidence != null && !matchedPolicyEvidence.isEmpty();
 
-        AuditAnalyzeResponse response = chatClient.prompt()
-                .system("""
-                        You are an Audit Security Analyst AI.
+        int riskScore = suspicious ? 7 : 2;
+        String category = suspicious ? "suspicious_login" : "benign";
 
-                        Analyze the current audit event using the supplied context.
-                        Use the additional context only if it is relevant.
-                        If some context is missing, still provide the best possible answer.
-                        Prefer policy-grounded reasoning whenever policy context is present.
-                        Return ONLY the structured output matching the response schema.
+        if (adminAction) {
+            category = "admin_action";
+            riskScore = suspicious ? 8 : 5;
+        } else if (loginEvent && suspicious) {
+            category = "suspicious_login";
+            riskScore = 7;
+        }
 
-                        CATEGORY MUST BE EXACTLY ONE OF:
-                        - suspicious_login
-                        - data_access
-                        - privilege_change
-                        - admin_action
-                        - policy_violation
-                        - benign
-                        - unknown
+        List<String> reasons = new ArrayList<>();
+        if (loginEvent) reasons.add("login_event_detected");
+        if (adminAction) reasons.add("admin_action_detected");
+        if (suspicious) reasons.add("event_pattern_flagged");
+        if (grounded) reasons.add("policy_evidence_matched");
+        if (reasons.isEmpty()) reasons.add("low_risk_signal");
 
-                        Constraints:
-                        - riskScore must be an integer from 0 to 10
-                        - summary must be short
-                        - reasons must contain 3 to 6 short items
-                        - tags must be lowercase with underscores where needed
-                        - recommendedAction must be one short sentence
-                        """)
-                .user(u -> u.text("""
-                        EVENT ID: {eventId}
-                        ACTOR: {actor}
-                        CURRENT EVENT:
-                        {eventText}
+        List<String> tags = new ArrayList<>();
+        tags.add(loginEvent ? "login" : "audit");
+        if (adminAction) tags.add("admin");
+        if (grounded) tags.add("policy_grounded");
+        if (suspicious) tags.add("review");
 
-                        ADDITIONAL CONTEXT:
-                        {context}
-                        """)
-                        .param("eventId", eventId)
-                        .param("actor", actor)
-                        .param("eventText", eventText)
-                        .param("context", joinedContext))
-                .call()
-                .entity(AuditAnalyzeResponse.class);
+        String summary = suspicious
+                ? "Event shows potentially risky characteristics and should be reviewed."
+                : "Event appears low risk based on available evidence.";
 
-        AuditAnalyzeResponse finalResponse = response != null ? normalize(response) : fallbackResponse();
+        String recommendedAction = suspicious
+                ? "Review the event and verify whether the action was expected."
+                : "No immediate action required, but retain the record for monitoring.";
 
-        log.info(
-                "[AGENT][{}] final category={} riskScore={} summary={}",
-                trace.getTraceId(),
-                finalResponse.category(),
-                finalResponse.riskScore(),
-                finalResponse.summary()
-        );
-
-        return finalResponse;
+        return AgentFinalizePayload.builder()
+                .riskScore(riskScore)
+                .category(category)
+                .summary(summary)
+                .reasons(reasons)
+                .tags(tags)
+                .recommendedAction(recommendedAction)
+                .fallbackUsed(false)
+                .build();
     }
 
-    private ToolExecutionResult safeToolCall(String toolName, AgentExecutionTrace trace, ToolSupplier supplier) {
-        trace.incrementAttempted();
-        trace.addTool(toolName);
+    private AgentFinalizePayload generateToolAwarePayload(
+            AuditEvent event,
+            List<MatchedPolicyEvidence> matchedPolicyEvidence,
+            List<String> toolObservations
+    ) {
+        boolean suspicious = looksSuspicious(event);
+        boolean loginEvent = isLoginEvent(event);
+        boolean adminAction = looksAdminAction(event);
+        boolean grounded = matchedPolicyEvidence != null && !matchedPolicyEvidence.isEmpty();
+        boolean hasToolEvidence = toolObservations != null && !toolObservations.isEmpty();
 
+        int riskScore = suspicious ? 7 : 3;
+        if (hasToolEvidence) {
+            riskScore += 1;
+        }
+        if (adminAction) {
+            riskScore = Math.max(riskScore, 8);
+        }
+        riskScore = Math.min(riskScore, 10);
+
+        String category = "benign";
+        if (adminAction) {
+            category = "admin_action";
+        } else if (loginEvent && suspicious) {
+            category = "suspicious_login";
+        } else if (suspicious) {
+            category = "policy_violation";
+        }
+
+        List<String> reasons = new ArrayList<>();
+        if (loginEvent) reasons.add("login_event_detected");
+        if (adminAction) reasons.add("admin_action_detected");
+        if (suspicious) reasons.add("suspicious_signal_present");
+        if (grounded) reasons.add("policy_evidence_matched");
+        if (hasToolEvidence) reasons.add("tool_context_collected");
+        if (reasons.isEmpty()) reasons.add("low_risk_signal");
+
+        List<String> tags = new ArrayList<>();
+        tags.add(loginEvent ? "login" : "audit");
+        if (adminAction) tags.add("admin");
+        if (grounded) tags.add("policy_grounded");
+        if (hasToolEvidence) tags.add("tool_grounded");
+        if (suspicious) tags.add("review");
+
+        String summary;
+        if (adminAction) {
+            summary = "Admin activity was analyzed with policy and tool context.";
+        } else if (loginEvent && suspicious) {
+            summary = "Login event appears suspicious after tool and policy review.";
+        } else if (suspicious) {
+            summary = "Event requires review based on retrieved evidence and tool context.";
+        } else {
+            summary = "Event appears low risk after policy and tool-based review.";
+        }
+
+        String recommendedAction = suspicious || adminAction
+                ? "Review the event and confirm whether the activity was authorized."
+                : "No immediate action required, but continue normal monitoring.";
+
+        return AgentFinalizePayload.builder()
+                .riskScore(riskScore)
+                .category(category)
+                .summary(summary)
+                .reasons(reasons)
+                .tags(tags)
+                .recommendedAction(recommendedAction)
+                .fallbackUsed(false)
+                .build();
+    }
+
+    private java.util.Optional<String> safeToolCall(
+            List<ToolExecutionRecord> toolExecutions,
+            String toolName,
+            String inputSummary,
+            ToolSupplier supplier
+    ) {
         long start = System.currentTimeMillis();
+
         try {
-            log.info("[AGENT][{}] calling tool={}", trace.getTraceId(), toolName);
             Object data = supplier.get();
             long duration = System.currentTimeMillis() - start;
 
-            trace.incrementSucceeded();
-            log.info("[AGENT][{}] tool={} success durationMs={}", trace.getTraceId(), toolName, duration);
+            ToolExecutionRecord record = ToolExecutionRecord.builder()
+                    .toolName(toolName)
+                    .success(true)
+                    .durationMs(duration)
+                    .inputSummary(inputSummary)
+                    .outputSummary(data != null ? String.valueOf(data) : "null")
+                    .errorMessage(null)
+                    .executedAt(LocalDateTime.now())
+                    .build();
 
-            return ToolExecutionResult.success(toolName, data, duration);
+            toolExecutions.add(record);
+
+            log.info("Tool executed successfully. tool={} durationMs={}", toolName, duration);
+            return java.util.Optional.of(record.getOutputSummary());
+
         } catch (Exception ex) {
             long duration = System.currentTimeMillis() - start;
 
-            trace.incrementFailed();
-            trace.addNote("Tool failed: " + toolName + " -> " + ex.getMessage());
+            ToolExecutionRecord record = ToolExecutionRecord.builder()
+                    .toolName(toolName)
+                    .success(false)
+                    .durationMs(duration)
+                    .inputSummary(inputSummary)
+                    .outputSummary(null)
+                    .errorMessage(ex.getMessage())
+                    .executedAt(LocalDateTime.now())
+                    .build();
 
-            log.warn(
-                    "[AGENT][{}] tool={} failed durationMs={} error={}",
-                    trace.getTraceId(),
-                    toolName,
-                    duration,
-                    ex.getMessage()
-            );
+            toolExecutions.add(record);
 
-            return ToolExecutionResult.failure(toolName, ex.getMessage(), duration);
+            log.warn("Tool execution failed. tool={} durationMs={} error={}", toolName, duration, ex.getMessage());
+            return java.util.Optional.empty();
         }
     }
 
-    private void saveAnalysis(String eventId, AuditAnalyzeResponse response) {
-        AuditAiAnalysis analysis = auditAiAnalysisRepository.findByEventId(eventId)
-                .orElseGet(AuditAiAnalysis::new);
-
-        analysis.setEventId(eventId);
-        analysis.setRiskScore(response.riskScore());
-        analysis.setCategory(response.category());
-        analysis.setSummary(response.summary());
-        analysis.setReasons(response.reasons());
-        analysis.setTags(response.tags());
-        analysis.setRecommendedAction(response.recommendedAction());
-
-        AuditAiAnalysis saved = auditAiAnalysisRepository.save(analysis);
-
-        log.info(
-                "[AGENT] analysis saved eventId={} analysisId={} category={} riskScore={}",
-                eventId,
-                saved.getId(),
-                saved.getCategory(),
-                saved.getRiskScore()
-        );
-    }
-
     private boolean isLoginEvent(AuditEvent event) {
-        return event.getEventType() != null && event.getEventType().toUpperCase().contains("LOGIN");
+        return event != null
+                && event.getEventType() != null
+                && event.getEventType().toUpperCase().contains("LOGIN");
     }
 
     private boolean looksSuspicious(AuditEvent event) {
+        if (event == null) {
+            return false;
+        }
+
         if (event.getStatus() != null && event.getStatus().equalsIgnoreCase("FAILURE")) {
             return true;
         }
@@ -291,11 +447,28 @@ public class AuditAgentService {
         return false;
     }
 
+    private boolean looksAdminAction(AuditEvent event) {
+        if (event == null) {
+            return false;
+        }
+
+        String action = safe(event.getAction()).toUpperCase();
+        return action.contains("ADMIN")
+                || action.contains("PRIVILEGE")
+                || action.contains("POLICY")
+                || action.contains("ROLE")
+                || action.contains("EXPORT");
+    }
+
     private boolean needsRecentSequence(AuditEvent event) {
         return looksSuspicious(event) || isLoginEvent(event);
     }
 
     private String buildEventText(AuditEvent event) {
+        if (event == null) {
+            return "";
+        }
+
         return """
                 Event Type: %s
                 Actor: %s
@@ -303,129 +476,78 @@ public class AuditAgentService {
                 Target: %s
                 Status: %s
                 Event Time: %s
+                Location: %s
+                Device: %s
                 Metadata: %s
                 """.formatted(
-                event.getEventType(),
-                event.getActor(),
-                event.getAction(),
-                event.getTarget(),
-                event.getStatus(),
+                safe(event.getEventType()),
+                safe(event.getActor()),
+                safe(event.getAction()),
+                safe(event.getTarget()),
+                safe(event.getStatus()),
                 event.getEventTime(),
+                safe(extractLocation(event)),
+                safe(extractDevice(event)),
                 event.getMetadata()
         );
     }
 
-    private AuditAnalyzeResponse normalize(AuditAnalyzeResponse response) {
-        int clampedRiskScore = Math.max(0, Math.min(10, response.riskScore()));
-        String category = response.category() != null ? response.category() : "unknown";
-        String summary = response.summary() != null ? response.summary() : "No summary generated.";
-        List<String> reasons = response.reasons() != null ? response.reasons() : List.of();
-        List<String> tags = response.tags() != null ? response.tags() : List.of();
-        String recommendedAction = response.recommendedAction() != null
-                ? response.recommendedAction()
-                : "Review the event manually.";
-
-        return new AuditAnalyzeResponse(
-                clampedRiskScore,
-                category,
-                summary,
-                reasons,
-                tags,
-                recommendedAction
-        );
+    /**
+     * These two helpers are defensive in case location/device are stored
+     * either as direct fields or inside metadata in your current model.
+     */
+    private String extractLocation(AuditEvent event) {
+        try {
+            Object value = event.getClass().getMethod("getLocation").invoke(event);
+            return value != null ? String.valueOf(value) : "";
+        } catch (Exception ignored) {
+            return extractMetadataValue(event, "location");
+        }
     }
 
-    private AuditAnalyzeResponse fallbackResponse() {
-        return new AuditAnalyzeResponse(
-                5,
-                "unknown",
-                "AI analysis could not be generated.",
-                List.of("analysis_unavailable"),
-                List.of("fallback"),
-                "Review the event manually."
-        );
+    private String extractDevice(AuditEvent event) {
+        try {
+            Object value = event.getClass().getMethod("getDevice").invoke(event);
+            return value != null ? String.valueOf(value) : "";
+        } catch (Exception ignored) {
+            return extractMetadataValue(event, "device");
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private String extractMetadataValue(AuditEvent event, String key) {
+        try {
+            Object metadata = event.getMetadata();
+            if (metadata instanceof java.util.Map<?, ?> map) {
+                Object value = map.get(key);
+                return value != null ? String.valueOf(value) : "";
+            }
+        } catch (Exception ignored) {
+            // no-op
+        }
+        return "";
+    }
+
+    private int safeRiskScore(AgentFinalizePayload payload) {
+        return payload.getRiskScore() == null ? 0 : payload.getRiskScore();
     }
 
     private String safe(String value) {
-        return value != null ? value : "";
+        return value == null ? "" : value;
+    }
+
+    private String trimToLength(String value, int maxLen) {
+        if (value == null) {
+            return "";
+        }
+        if (value.length() <= maxLen) {
+            return value;
+        }
+        return value.substring(0, maxLen);
     }
 
     @FunctionalInterface
     private interface ToolSupplier {
         Object get();
     }
-
-    public String analyzeEventWithLlmDrivenTools(String eventId) {
-
-        AuditEvent event = auditEventService.getEventById(eventId);
-
-        String query = """
-            Event Type: %s
-            Actor: %s
-            Action: %s
-            Target: %s
-            Status: %s
-            Event Time: %s
-            Metadata: %s
-            """.formatted(
-                event.getEventType(),
-                event.getActor(),
-                event.getAction(),
-                event.getTarget(),
-                event.getStatus(),
-                event.getEventTime(),
-                event.getMetadata()
-        );
-
-        var retrievedChunks = knowledgeRetrievalService.findTopKRelevantChunks(query, 3);
-
-        String policies = retrievedChunks.stream()
-                .map(chunk -> "- " + chunk.getDocumentTitle() + ": " + chunk.getText())
-                .collect(java.util.stream.Collectors.joining("\n"));
-
-        String systemPrompt = """
-            You are an intelligent audit investigation assistant.
-
-            You have access to tools that can help investigate suspicious events.
-
-            Available tools:
-            1. getUserActivitySummary(actor)
-            2. getFailedLoginCount(actor)
-            3. getRecentEvents(actor, limit)
-
-            Tool rules:
-            - For clearly benign successful logins, avoid unnecessary tool calls
-            - Use tools when historical user activity helps confidence
-            - Always return final response in JSON format
-
-            Output JSON:
-            {
-              "riskScore": 0,
-              "category": "benign",
-              "summary": "string",
-              "reasons": ["string"],
-              "tags": ["string"],
-              "recommendedAction": "string"
-            }
-            """;
-
-        String userPrompt = """
-            Analyze this audit event.
-
-            Event:
-            %s
-
-            Policy Evidence:
-            %s
-            """.formatted(query, policies);
-
-        return chatClient.prompt()
-                .system(systemPrompt)
-                .user(userPrompt)
-                .tools(auditTools)
-                .call()
-                .content();
-    }
-
-
 }

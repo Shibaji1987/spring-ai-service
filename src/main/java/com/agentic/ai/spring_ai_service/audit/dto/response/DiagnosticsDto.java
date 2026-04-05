@@ -1,4 +1,4 @@
-package com.agentic.ai.spring_ai_service.audit.model;
+package com.agentic.ai.spring_ai_service.audit.dto.response;
 
 import lombok.*;
 
@@ -7,7 +7,7 @@ import lombok.*;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class AnalysisDiagnostics {
+public class DiagnosticsDto {
     private Integer retrievedChunkCount;
     private Integer evidenceUsedCount;
     private Integer toolsRequestedCount;
@@ -17,7 +17,7 @@ public class AnalysisDiagnostics {
     private Integer maxReasoningIterations;
     private Boolean reasoningTruncated;
 
-    private String orchestrationMode; // deterministic | llm_tools | llm_react
+    private String orchestrationMode;
     private String fallbackReason;
     private String validatorStatus;
     private String scoringNotes;

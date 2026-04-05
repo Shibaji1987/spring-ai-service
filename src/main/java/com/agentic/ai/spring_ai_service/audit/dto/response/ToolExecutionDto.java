@@ -2,6 +2,8 @@ package com.agentic.ai.spring_ai_service.audit.dto.response;
 
 import lombok.*;
 
+import java.time.LocalDateTime;
+
 @Getter
 @Setter
 @Builder
@@ -9,7 +11,10 @@ import lombok.*;
 @AllArgsConstructor
 public class ToolExecutionDto {
     private String toolName;
-    private String status;
+    private Boolean success;
     private Long durationMs;
-    private String failureReason;
+    private String inputSummary;
+    private String outputSummary;
+    private String errorMessage;
+    private LocalDateTime executedAt;
 }

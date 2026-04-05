@@ -8,9 +8,8 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 public class MatchedPolicyEvidenceDto {
-    private String title;
-    private String documentName;
+    private String policyName;
     private String excerpt;
-    private Double retrievalScore;
-    private String rationale;
+    private Double relevanceScore;
+    private String sourceChunkId;
 }

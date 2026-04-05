@@ -1,6 +1,10 @@
 package com.agentic.ai.spring_ai_service.audit.model;
 
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
@@ -22,29 +26,42 @@ public class AuditAiAnalysis {
 
     private String eventId;
 
-    private Integer riskScore;              // 0-100
-    private String category;                // benign, suspicious, high_risk, critical
-    private Double confidenceScore;         // 0.0 - 1.0
-    private String confidenceLabel;         // LOW, MEDIUM, HIGH
-
+    // Core analysis
+    private Integer riskScore;          // recommended scale: 0-10
+    private String category;            // BENIGN / SUSPICIOUS_LOGIN / UNUSUAL_ADMIN_ACTION / REVIEW_REQUIRED
     private String summary;
-    private List<String> reasons;
-    private List<String> tags;
+    @Builder.Default
+    private List<String> reasons = new ArrayList<>();
+    @Builder.Default
+    private List<String> tags = new ArrayList<>();
     private String recommendedAction;
 
+    // Confidence
+    private Double confidenceScore;     // 0.0 - 1.0
+    private String confidenceLabel;     // LOW / MEDIUM / HIGH
+
+    // Analysis metadata
     private Boolean grounded;
     private Boolean fallbackUsed;
     private Boolean toolsInvoked;
     private Boolean analysisSucceeded;
 
     private String modelName;
-    private String analysisVersion;         // e.g. v2.0.0
+    private String analysisVersion;
     private Instant analyzedAt;
 
-    private List<MatchedPolicyEvidence> matchedPolicyEvidence;
-    private List<ToolExecutionRecord> toolExecutions;
+    // Evidence + execution trace
+    @Builder.Default
+    private List<MatchedPolicyEvidence> matchedPolicyEvidence = new ArrayList<>();
+
+    @Builder.Default
+    private List<ToolExecutionRecord> toolExecutions = new ArrayList<>();
 
     private AnalysisDiagnostics diagnostics;
 
-    private Map<String, Object> rawStructuredResponse; // optional for debugging
+    @Builder.Default
+    private List<ReasoningStep> reasoningTrace = new ArrayList<>();
+
+    // Optional debug payload from structured LLM response
+    private Map<String, Object> rawStructuredResponse;
 }

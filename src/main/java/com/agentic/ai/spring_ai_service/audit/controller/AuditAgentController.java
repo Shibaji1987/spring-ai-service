@@ -1,6 +1,6 @@
 package com.agentic.ai.spring_ai_service.audit.controller;
 
-import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAnalyzeResponse;
+import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAnalysisResponseDto;
 import com.agentic.ai.spring_ai_service.service.AuditAgentService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,13 +18,13 @@ public class AuditAgentController {
     }
 
     @PostMapping("/analyze-with-tools/{eventId}")
-    public AuditAnalyzeResponse analyzeWithTools(@PathVariable String eventId) {
+    public AuditAnalysisResponseDto analyzeWithTools(@PathVariable String eventId) {
         log.info("Invoking Agent");
         return auditAgentService.analyzeEventWithTools(eventId);
     }
 
     @PostMapping("/analyze-with-llm-tools/{eventId}")
-    public String analyzeWithLlmTools(@PathVariable String eventId) {
+    public AuditAnalysisResponseDto analyzeWithLlmTools(@PathVariable String eventId) {
         return auditAgentService.analyzeEventWithLlmDrivenTools(eventId);
     }
 }
