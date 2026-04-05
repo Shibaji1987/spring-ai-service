@@ -1,7 +1,17 @@
 package com.agentic.ai.spring_ai_service.audit.mapper;
 
-import com.agentic.ai.spring_ai_service.audit.dto.response.*;
-import com.agentic.ai.spring_ai_service.audit.model.*;
+import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAnalysisResponseDto;
+import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAnalysisResultDto;
+import com.agentic.ai.spring_ai_service.audit.dto.response.DiagnosticsDto;
+import com.agentic.ai.spring_ai_service.audit.dto.response.MatchedPolicyEvidenceDto;
+import com.agentic.ai.spring_ai_service.audit.dto.response.ReasoningStepDto;
+import com.agentic.ai.spring_ai_service.audit.dto.response.ToolExecutionDto;
+import com.agentic.ai.spring_ai_service.audit.model.AnalysisDiagnostics;
+import com.agentic.ai.spring_ai_service.audit.model.AuditAiAnalysis;
+import com.agentic.ai.spring_ai_service.audit.model.AuditEvent;
+import com.agentic.ai.spring_ai_service.audit.model.MatchedPolicyEvidence;
+import com.agentic.ai.spring_ai_service.audit.model.ReasoningStep;
+import com.agentic.ai.spring_ai_service.audit.model.ToolExecutionRecord;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
@@ -39,6 +49,28 @@ public class AuditAnalysisMapper {
                 .diagnostics(toDiagnosticsDto(analysis.getDiagnostics()))
                 .reasoningTrace(toReasoningDtos(analysis.getReasoningTrace()))
                 .build();
+    }
+
+    public static AuditAnalysisResultDto toDto(AuditEvent event, AuditAiAnalysis analysis) {
+        AuditAnalysisResultDto dto = new AuditAnalysisResultDto();
+
+        dto.setAuditEventId(event.getId());
+        dto.setEventType(event.getEventType());
+        dto.setActor(event.getActor());
+        dto.setAction(event.getAction());
+        dto.setTarget(event.getTarget());
+        dto.setStatus(event.getStatus());
+        dto.setEventTime(event.getEventTime());
+        dto.setMetadata(event.getMetadata());
+
+        dto.setRiskScore(analysis.getRiskScore());
+        dto.setCategory(analysis.getCategory());
+        dto.setSummary(analysis.getSummary());
+        dto.setReasons(analysis.getReasons());
+        dto.setTags(analysis.getTags());
+        dto.setRecommendedAction(analysis.getRecommendedAction());
+
+        return dto;
     }
 
     private List<MatchedPolicyEvidenceDto> toEvidenceDtos(List<MatchedPolicyEvidence> items) {

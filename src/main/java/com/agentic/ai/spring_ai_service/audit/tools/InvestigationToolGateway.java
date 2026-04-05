@@ -1,105 +1,146 @@
 package com.agentic.ai.spring_ai_service.audit.tools;
 
-import com.agentic.ai.spring_ai_service.audit.model.AuditEventToolResult;
 import com.agentic.ai.spring_ai_service.audit.model.ToolExecutionRecord;
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
 
-import java.time.Instant;
-import java.util.Collections;
-import java.util.List;
+import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Supplier;
 
-@Service
+@Slf4j
+@Component
 @RequiredArgsConstructor
 public class InvestigationToolGateway {
 
-    private final AuditInvestigationTools auditInvestigationTools;
+    private static final Set<String> ALLOWED_TOOLS = Set.of(
+            "getUserActivitySummary",
+            "getFailedLoginCount",
+            "getRecentEvents"
+    );
 
-    public ToolExecutionOutcome executeWhitelisted(String toolName, Map<String, Object> arguments) {
-        Instant startedAt = Instant.now();
+    private final AuditTools auditTools;
+
+    public ToolExecutionRecord executeWhitelisted(String toolName, Map<String, Object> input) {
+        if (toolName == null || toolName.isBlank()) {
+            return ToolExecutionRecord.builder()
+                    .toolName("UNKNOWN")
+                    .success(false)
+                    .durationMs(0L)
+                    .inputSummary(input != null ? input.toString() : "{}")
+                    .outputSummary(null)
+                    .errorMessage("Tool name is missing.")
+                    .executedAt(LocalDateTime.now())
+                    .build();
+        }
+
+        if (!ALLOWED_TOOLS.contains(toolName)) {
+            return ToolExecutionRecord.builder()
+                    .toolName(toolName)
+                    .success(false)
+                    .durationMs(0L)
+                    .inputSummary(input != null ? input.toString() : "{}")
+                    .outputSummary(null)
+                    .errorMessage("Tool is not whitelisted: " + toolName)
+                    .executedAt(LocalDateTime.now())
+                    .build();
+        }
+
+        return switch (toolName) {
+            case "getUserActivitySummary" -> {
+                String actor = getString(input);
+                yield execute(
+                        toolName,
+                        input,
+                        () -> auditTools.getUserActivitySummary(actor)
+                );
+            }
+            case "getFailedLoginCount" -> {
+                String actor = getString(input);
+                yield execute(
+                        toolName,
+                        input,
+                        () -> auditTools.getFailedLoginCount(actor)
+                );
+            }
+            case "getRecentEvents" -> {
+                String actor = getString(input);
+                int limit = getInt(input);
+                yield execute(
+                        toolName,
+                        input,
+                        () -> auditTools.getRecentEvents(actor, limit)
+                );
+            }
+            default -> ToolExecutionRecord.builder()
+                    .toolName(toolName)
+                    .success(false)
+                    .durationMs(0L)
+                    .inputSummary(input != null ? input.toString() : "{}")
+                    .outputSummary(null)
+                    .errorMessage("Unsupported tool: " + toolName)
+                    .executedAt(LocalDateTime.now())
+                    .build();
+        };
+    }
+
+    public ToolExecutionRecord execute(String toolName, String inputSummary, Supplier<Object> supplier) {
+        long start = System.currentTimeMillis();
 
         try {
-            return switch (toolName) {
-                case "findRecentEventsByUser" -> executeFindRecentEventsByUser(arguments, startedAt);
-                default -> buildFailure(toolName, arguments, startedAt, "Tool not whitelisted: " + toolName);
-            };
+            Object result = supplier.get();
+            long duration = System.currentTimeMillis() - start;
+
+            ToolExecutionRecord record = ToolExecutionRecord.builder()
+                    .toolName(toolName)
+                    .success(true)
+                    .durationMs(duration)
+                    .inputSummary(inputSummary)
+                    .outputSummary(result != null ? String.valueOf(result) : "null")
+                    .errorMessage(null)
+                    .executedAt(LocalDateTime.now())
+                    .build();
+
+            log.info("Tool executed successfully. tool={} durationMs={}", toolName, duration);
+            return record;
+
         } catch (Exception ex) {
-            return buildFailure(toolName, arguments, startedAt, ex.getMessage());
+            long duration = System.currentTimeMillis() - start;
+
+            ToolExecutionRecord record = ToolExecutionRecord.builder()
+                    .toolName(toolName)
+                    .success(false)
+                    .durationMs(duration)
+                    .inputSummary(inputSummary)
+                    .outputSummary(null)
+                    .errorMessage(ex.getMessage())
+                    .executedAt(LocalDateTime.now())
+                    .build();
+
+            log.warn("Tool execution failed. tool={} durationMs={} error={}", toolName, duration, ex.getMessage());
+            return record;
         }
     }
 
-    private ToolExecutionOutcome executeFindRecentEventsByUser(Map<String, Object> arguments, Instant startedAt) {
-        String userId = getString(arguments, "userId");
-        if (userId == null || userId.isBlank()) {
-            userId = getString(arguments, "actor");
-        }
-
-        Integer hours = getInteger(arguments, "hours");
-        if (hours == null || hours <= 0) {
-            hours = 24;
-        }
-
-        List<AuditEventToolResult> results = auditInvestigationTools.findRecentEventsByUser(userId, hours);
-
-        Instant completedAt = Instant.now();
-
-        ToolExecutionRecord record = ToolExecutionRecord.builder()
-                .toolName("findRecentEventsByUser")
-                .status("EXECUTED")
-                .startedAt(startedAt)
-                .completedAt(completedAt)
-                .input(arguments == null ? Collections.emptyMap() : arguments)
-                .output(Map.of(
-                        "resultCount", results.size(),
-                        "results", results
-                ))
-                .failureReason(null)
-                .durationMs(completedAt.toEpochMilli() - startedAt.toEpochMilli())
-                .build();
-
-        String summary = "findRecentEventsByUser returned " + results.size() + " event(s) for actor=" + userId;
-
-        return new ToolExecutionOutcome(record, summary);
+    public ToolExecutionRecord execute(String toolName, Map<String, Object> input, Supplier<Object> supplier) {
+        return execute(toolName, input != null ? input.toString() : "{}", supplier);
     }
 
-    private ToolExecutionOutcome buildFailure(String toolName,
-                                              Map<String, Object> arguments,
-                                              Instant startedAt,
-                                              String reason) {
-        Instant completedAt = Instant.now();
-
-        ToolExecutionRecord record = ToolExecutionRecord.builder()
-                .toolName(toolName)
-                .status("FAILED")
-                .startedAt(startedAt)
-                .completedAt(completedAt)
-                .input(arguments == null ? Collections.emptyMap() : arguments)
-                .output(Collections.emptyMap())
-                .failureReason(reason)
-                .durationMs(completedAt.toEpochMilli() - startedAt.toEpochMilli())
-                .build();
-
-        return new ToolExecutionOutcome(record, null);
+    private String getString(Map<String, Object> input) {
+        if (input == null || !input.containsKey("actor") || input.get("actor") == null) {
+            return "";
+        }
+        return String.valueOf(input.get("actor"));
     }
 
-    private String getString(Map<String, Object> arguments, String key) {
-        if (arguments == null || !arguments.containsKey(key) || arguments.get(key) == null) {
-            return null;
-        }
-        return String.valueOf(arguments.get(key));
-    }
-
-    private Integer getInteger(Map<String, Object> arguments, String key) {
-        if (arguments == null || !arguments.containsKey(key) || arguments.get(key) == null) {
-            return null;
+    private int getInt(Map<String, Object> input) {
+        if (input == null || !input.containsKey("limit") || input.get("limit") == null) {
+            return 5;
         }
 
-        Object value = arguments.get(key);
-
-        if (value instanceof Integer integer) {
-            return integer;
-        }
+        Object value = input.get("limit");
 
         if (value instanceof Number number) {
             return number.intValue();
@@ -108,7 +149,7 @@ public class InvestigationToolGateway {
         try {
             return Integer.parseInt(String.valueOf(value));
         } catch (NumberFormatException ex) {
-            return null;
+            return 5;
         }
     }
 }
