@@ -1,85 +1,146 @@
 package com.agentic.ai.spring_ai_service.service;
 
+import com.agentic.ai.spring_ai_service.audit.dto.agent.AgentFinalizePayload;
 import com.agentic.ai.spring_ai_service.audit.model.AuditEvent;
+import com.agentic.ai.spring_ai_service.audit.model.MatchedPolicyEvidence;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
+@Slf4j
 @Service
+@RequiredArgsConstructor
 public class AuditAiService {
 
-    private final ChatClient chatClient;
+    private final ChatClient.Builder chatClientBuilder;
 
-    public AuditAiService(ChatClient.Builder chatClientBuilder) {
-        this.chatClient = chatClientBuilder.build();
-    }
-
+    /**
+     * Backward compatibility for existing AuditAnalysisService
+     */
     public String analyze(AuditEvent event) {
-        String prompt = """
-                You are a banking audit risk analysis engine.
-
-                Analyze the audit event and return ONLY valid JSON.
-                Do not return markdown, explanation, headings, or code fences.
-
-                Allowed category values:
-                - AUTHENTICATION_RISK
-                - AUTHORIZATION_VIOLATION
-                - DATA_ACCESS_ANOMALY
-                - TRANSACTION_RISK
-                - CONFIGURATION_CHANGE_RISK
-                - COMPLIANCE_ALERT
-                - INSIDER_THREAT
-                - LOW_RISK_ACTIVITY
-
-                Category guidance:
-                - suspicious login, impossible travel, new device, odd hour login -> AUTHENTICATION_RISK
-                - forbidden action, access denied, role misuse, privilege abuse -> AUTHORIZATION_VIOLATION
-                - bulk export, excessive reads, sensitive record access, unusual data retrieval -> DATA_ACCESS_ANOMALY
-                - suspicious payment, abnormal transfer, unusual monetary activity -> TRANSACTION_RISK
-                - configuration update, role change, policy change, audit setting change -> CONFIGURATION_CHANGE_RISK
-                - KYC/AML/privacy/regulatory risk -> COMPLIANCE_ALERT
-                - employee misuse, repeated suspicious internal activity -> INSIDER_THREAT
-                - clearly normal benign activity -> LOW_RISK_ACTIVITY
-
-                Rules:
-                1. riskScore must be an integer between 1 and 10
-                2. category must be exactly one allowed value
-                3. summary must be one concise sentence
-                4. reasons must contain 2 to 5 short strings
-                5. tags must contain 3 to 6 lowercase strings using underscores
-                6. recommendedAction must be one practical sentence
-                7. output must be strictly valid JSON
-
-                JSON format:
-                {
-                  "riskScore": 0,
-                  "category": "",
-                  "summary": "",
-                  "reasons": [],
-                  "tags": [],
-                  "recommendedAction": ""
-                }
-
-                Audit event:
-                eventType: %s
-                actor: %s
-                action: %s
-                target: %s
-                status: %s
-                eventTime: %s
-                metadata: %s
-                """.formatted(
-                event.getEventType(),
-                event.getActor(),
-                event.getAction(),
-                event.getTarget(),
-                event.getStatus(),
-                event.getEventTime(),
-                event.getMetadata()
+        AgentFinalizePayload payload = generateFinalAnalysis(
+                event,
+                List.of(),
+                List.of(),
+                false
         );
 
-        return chatClient.prompt()
+        return payload != null ? payload.toString() : "{}";
+    }
+
+    /**
+     * New final analysis method used by bounded ReAct flow
+     */
+    public AgentFinalizePayload generateFinalAnalysis(
+            AuditEvent event,
+            List<MatchedPolicyEvidence> matchedPolicyEvidence,
+            List<String> observations,
+            boolean fallbackUsed
+    ) {
+        ChatClient chatClient = chatClientBuilder.build();
+
+        String prompt = buildFinalPrompt(
+                event,
+                matchedPolicyEvidence,
+                observations,
+                fallbackUsed
+        );
+
+        log.info(
+                "[LLM-FINAL] generating final analysis for eventId={} actor={} action={}",
+                event != null ? event.getId() : null,
+                event != null ? event.getActor() : null,
+                event != null ? event.getAction() : null
+        );
+
+        AgentFinalizePayload payload = chatClient.prompt()
                 .user(prompt)
                 .call()
-                .content();
+                .entity(AgentFinalizePayload.class);
+
+        if (payload != null) {
+            payload.setFallbackUsed(fallbackUsed);
+        }
+
+        log.info(
+                "[LLM-FINAL] result riskScore={} category={} fallbackUsed={}",
+                payload != null ? payload.getRiskScore() : null,
+                payload != null ? payload.getCategory() : null,
+                payload != null ? payload.getFallbackUsed() : null
+        );
+
+        return payload;
+    }
+
+    private String buildFinalPrompt(
+            AuditEvent event,
+            List<MatchedPolicyEvidence> evidence,
+            List<String> observations,
+            boolean fallbackUsed
+    ) {
+        return """
+                You are an enterprise audit risk analysis engine.
+                
+                Generate the FINAL audit analysis.
+                Return ONLY JSON matching this structure:
+                
+                {
+                  "riskScore": 0,
+                  "category": "BENIGN_LOGIN",
+                  "summary": "text",
+                  "reasons": ["text"],
+                  "tags": ["text"],
+                  "recommendedAction": "text",
+                  "confidenceScore": null,
+                  "confidenceLabel": null,
+                  "fallbackUsed": false
+                }
+                
+                Rules:
+                1. riskScore must be from 0 to 10.
+                2. Use BENIGN_LOGIN for normal successful low-risk logins.
+                3. Use SUSPICIOUS_LOGIN for suspicious login activity.
+                4. Use UNUSUAL_ADMIN_ACTION for risky admin actions.
+                5. Use REVIEW_REQUIRED if evidence is mixed or incomplete.
+                6. Be conservative and realistic.
+                7. Do not inflate benign events into suspicious ones.
+                8. Do not include markdown.
+                
+                Event:
+                - eventType: %s
+                - actor: %s
+                - action: %s
+                - target: %s
+                - status: %s
+                - eventTime: %s
+                - metadata: %s
+                
+                Matched policy evidence:
+                %s
+                
+                Tool/Reasoning observations:
+                %s
+                
+                Fallback used:
+                %s
+                """.formatted(
+                safe(event != null ? event.getEventType() : null),
+                safe(event != null ? event.getActor() : null),
+                safe(event != null ? event.getAction() : null),
+                safe(event != null ? event.getTarget() : null),
+                safe(event != null ? event.getStatus() : null),
+                event != null ? event.getEventTime() : null,
+                event != null ? event.getMetadata() : null,
+                evidence,
+                observations,
+                fallbackUsed
+        );
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value;
     }
 }
