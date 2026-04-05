@@ -1,45 +1,42 @@
 package com.agentic.ai.spring_ai_service.audit.orchestrator;
 
 import com.agentic.ai.spring_ai_service.audit.dto.agent.AgentToolRequest;
+import com.agentic.ai.spring_ai_service.audit.model.AuditEvent;
 import com.agentic.ai.spring_ai_service.audit.model.ToolExecutionRecord;
+import com.agentic.ai.spring_ai_service.audit.tools.InvestigationToolGateway;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
-
+@Slf4j
 @Service
+@RequiredArgsConstructor
 public class ToolExecutionOrchestrator {
 
+    private final InvestigationToolGateway investigationToolGateway;
+
     public ToolExecutionRecord execute(Object auditEvent, AgentToolRequest request) {
-        long start = System.currentTimeMillis();
+        AuditEvent event = (AuditEvent) auditEvent;
 
-        try {
-            String toolName = request != null ? request.getToolName() : "unknown-tool";
+        String toolName = request != null ? request.getToolName() : "unknown-tool";
 
-            String output = "Executed " + toolName + " successfully.";
-            long duration = System.currentTimeMillis() - start;
+        log.info("[TOOL-ORCH] executing tool={} actor={} args={}",
+                toolName,
+                event != null ? event.getActor() : null,
+                request != null ? request.getToolArgs() : "{}");
 
-            return ToolExecutionRecord.builder()
-                    .toolName(toolName)
-                    .success(true)
-                    .durationMs(duration)
-                    .inputSummary(request != null && request.getToolArgs() != null ? request.getToolArgs().toString() : "{}")
-                    .outputSummary(output)
-                    .errorMessage(null)
-                    .executedAt(LocalDateTime.now())
-                    .build();
+        ToolExecutionRecord record = investigationToolGateway.executeWhitelisted(
+                toolName,
+                request != null ? request.getToolArgs() : null
+        );
 
-        } catch (Exception ex) {
-            long duration = System.currentTimeMillis() - start;
+        log.info("[TOOL-ORCH] result tool={} success={} durationMs={} output='{}' error='{}'",
+                record.getToolName(),
+                record.getSuccess(),
+                record.getDurationMs(),
+                record.getOutputSummary(),
+                record.getErrorMessage());
 
-            return ToolExecutionRecord.builder()
-                    .toolName(request != null ? request.getToolName() : "unknown-tool")
-                    .success(false)
-                    .durationMs(duration)
-                    .inputSummary(request != null && request.getToolArgs() != null ? request.getToolArgs().toString() : "{}")
-                    .outputSummary(null)
-                    .errorMessage(ex.getMessage())
-                    .executedAt(LocalDateTime.now())
-                    .build();
-        }
+        return record;
     }
 }

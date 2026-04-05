@@ -6,9 +6,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Component
@@ -50,28 +52,28 @@ public class InvestigationToolGateway {
 
         return switch (toolName) {
             case "getUserActivitySummary" -> {
-                String actor = getString(input);
+                String actor = getString(input, "actor");
                 yield execute(
                         toolName,
                         input,
-                        () -> auditTools.getUserActivitySummary(actor)
+                        () -> formatUserActivitySummary(actor, auditTools.getUserActivitySummary(actor))
                 );
             }
             case "getFailedLoginCount" -> {
-                String actor = getString(input);
+                String actor = getString(input, "actor");
                 yield execute(
                         toolName,
                         input,
-                        () -> auditTools.getFailedLoginCount(actor)
+                        () -> formatFailedLoginCount(actor, auditTools.getFailedLoginCount(actor))
                 );
             }
             case "getRecentEvents" -> {
-                String actor = getString(input);
-                int limit = getInt(input);
+                String actor = getString(input, "actor");
+                int limit = getInt(input, "limit", 5);
                 yield execute(
                         toolName,
                         input,
-                        () -> auditTools.getRecentEvents(actor, limit)
+                        () -> formatRecentEvents(actor, limit, auditTools.getRecentEvents(actor, limit))
                 );
             }
             default -> ToolExecutionRecord.builder()
@@ -128,19 +130,38 @@ public class InvestigationToolGateway {
         return execute(toolName, input != null ? input.toString() : "{}", supplier);
     }
 
-    private String getString(Map<String, Object> input) {
-        if (input == null || !input.containsKey("actor") || input.get("actor") == null) {
-            return "";
-        }
-        return String.valueOf(input.get("actor"));
+    private String formatUserActivitySummary(String actor, Object raw) {
+        return "User activity summary for " + actor + ": " + safe(raw);
     }
 
-    private int getInt(Map<String, Object> input) {
-        if (input == null || !input.containsKey("limit") || input.get("limit") == null) {
-            return 5;
+    private String formatFailedLoginCount(String actor, Object raw) {
+        return "Failed login count for " + actor + ": " + safe(raw);
+    }
+
+    private String formatRecentEvents(String actor, int limit, Object raw) {
+        if (raw instanceof List<?> list) {
+            String summary = list.stream()
+                    .limit(3)
+                    .map(String::valueOf)
+                    .collect(Collectors.joining(" | "));
+            return "Recent events for " + actor + " limit=" + limit + ": count=" + list.size() + (summary.isBlank() ? "" : " -> " + summary);
+        }
+        return "Recent events for " + actor + " limit=" + limit + ": " + safe(raw);
+    }
+
+    private String getString(Map<String, Object> input, String key) {
+        if (input == null || !input.containsKey(key) || input.get(key) == null) {
+            return "";
+        }
+        return String.valueOf(input.get(key));
+    }
+
+    private int getInt(Map<String, Object> input, String key, int defaultValue) {
+        if (input == null || !input.containsKey(key) || input.get(key) == null) {
+            return defaultValue;
         }
 
-        Object value = input.get("limit");
+        Object value = input.get(key);
 
         if (value instanceof Number number) {
             return number.intValue();
@@ -149,7 +170,11 @@ public class InvestigationToolGateway {
         try {
             return Integer.parseInt(String.valueOf(value));
         } catch (NumberFormatException ex) {
-            return 5;
+            return defaultValue;
         }
+    }
+
+    private String safe(Object value) {
+        return value == null ? "null" : String.valueOf(value);
     }
 }
