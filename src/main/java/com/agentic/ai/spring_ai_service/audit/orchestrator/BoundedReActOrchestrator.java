@@ -33,7 +33,11 @@ public class BoundedReActOrchestrator {
     private final AnalysisConfidenceService confidenceService;
     private final AnalysisResponseValidator validator;
 
-    public ReActExecutionResult execute(String eventId, Object auditEventObj, List<MatchedPolicyEvidence> matchedPolicyEvidence) {
+    public ReActExecutionResult execute(
+            String eventId,
+            Object auditEventObj,
+            List<MatchedPolicyEvidence> matchedPolicyEvidence
+    ) {
         AuditEvent auditEvent = (AuditEvent) auditEventObj;
 
         List<ReasoningStep> reasoningTrace = new ArrayList<>();
@@ -45,12 +49,20 @@ public class BoundedReActOrchestrator {
         boolean finalized = false;
         boolean fallbackUsed = false;
 
-        log.info("[REACT][{}] started maxIterations={} matchedPolicyEvidence={}",
-                eventId, MAX_ITERATIONS, matchedPolicyEvidence == null ? 0 : matchedPolicyEvidence.size());
+        log.info(
+                "[REACT][{}] started maxIterations={} matchedPolicyEvidence={}",
+                eventId,
+                MAX_ITERATIONS,
+                matchedPolicyEvidence == null ? 0 : matchedPolicyEvidence.size()
+        );
 
         for (int i = 1; i <= MAX_ITERATIONS; i++) {
-            log.info("[REACT][{}][step={}] iteration started observationsSoFar={}",
-                    eventId, i, observations.size());
+            log.info(
+                    "[REACT][{}][step={}] iteration started observationsSoFar={}",
+                    eventId,
+                    i,
+                    observations.size()
+            );
 
             AgentDecision decision = agentDecisionService.decide(
                     auditEvent,
@@ -77,22 +89,41 @@ public class BoundedReActOrchestrator {
                 break;
             }
 
-            log.info("[REACT][{}][step={}] decision thought='{}' action={} tool={} decision={}",
+            log.info(
+                    "[REACT][{}][step={}] decision thought='{}' action={} tool={} decision={}",
                     eventId,
                     i,
                     decision.getThought(),
                     decision.getAction(),
                     decision.getToolRequest() != null ? decision.getToolRequest().getToolName() : null,
-                    decision.getDecision());
+                    decision.getDecision()
+            );
 
             if ("FINALIZE".equalsIgnoreCase(decision.getAction())) {
                 step.setObservation("Finalization requested by LLM.");
                 observations.add("Finalization requested by LLM.");
+
+                finalPayload = decision.getFinalResponse();
+                if (finalPayload == null) {
+                    finalPayload = AgentFinalizePayload.builder()
+                            .riskScore(5)
+                            .category("REVIEW_REQUIRED")
+                            .summary("Finalization payload missing. Review required.")
+                            .reasons(List.of("final_payload_missing"))
+                            .tags(List.of("fallback"))
+                            .recommendedAction("Review event manually.")
+                            .fallbackUsed(true)
+                            .build();
+                    fallbackUsed = true;
+                }
+
                 finalized = true;
                 break;
             }
 
-            String toolName = decision.getToolRequest() != null ? decision.getToolRequest().getToolName() : null;
+            String toolName = decision.getToolRequest() != null
+                    ? decision.getToolRequest().getToolName()
+                    : null;
 
             if (toolName == null || toolName.isBlank()) {
                 fallbackUsed = true;
@@ -104,18 +135,29 @@ public class BoundedReActOrchestrator {
             if (usedTools.contains(toolName)) {
                 step.setObservation("Skipped duplicate tool call for " + toolName + ".");
                 observations.add("Skipped duplicate tool call for " + toolName + ".");
-                log.info("[REACT][{}][step={}] duplicate tool skipped tool={}", eventId, i, toolName);
+                log.info(
+                        "[REACT][{}][step={}] duplicate tool skipped tool={}",
+                        eventId,
+                        i,
+                        toolName
+                );
                 finalized = true;
                 break;
             }
 
-            log.info("[REACT][{}][step={}] invoking tool={} args={}",
+            log.info(
+                    "[REACT][{}][step={}] invoking tool={} args={}",
                     eventId,
                     i,
                     toolName,
-                    decision.getToolRequest().getToolArgs());
+                    decision.getToolRequest().getToolArgs()
+            );
 
-            ToolExecutionRecord toolRecord = toolExecutionOrchestrator.execute(auditEvent, decision.getToolRequest());
+            ToolExecutionRecord toolRecord = toolExecutionOrchestrator.execute(
+                    auditEvent,
+                    decision.getToolRequest()
+            );
+
             toolExecutions.add(toolRecord);
             usedTools.add(toolName);
 
@@ -126,26 +168,36 @@ public class BoundedReActOrchestrator {
             step.setObservation(observation);
             observations.add(observation);
 
-            log.info("[REACT][{}][step={}] toolResult success={} durationMs={} output='{}' error='{}'",
+            log.info(
+                    "[REACT][{}][step={}] toolResult success={} durationMs={} output='{}' error='{}'",
                     eventId,
                     i,
                     toolRecord.getSuccess(),
                     toolRecord.getDurationMs(),
                     toolRecord.getOutputSummary(),
-                    toolRecord.getErrorMessage());
+                    toolRecord.getErrorMessage()
+            );
         }
 
-        if (!finalized && observations.size() >= MAX_ITERATIONS) {
+        if (!finalized && reasoningTrace.size() >= MAX_ITERATIONS) {
             fallbackUsed = true;
         }
 
-        finalPayload = auditAiService.generateFinalAnalysis(
-                auditEvent,
-                matchedPolicyEvidence,
-                observations,
-                fallbackUsed
-        );
+        if (finalPayload == null) {
+            finalPayload = AgentFinalizePayload.builder()
+                    .riskScore(5)
+                    .category("REVIEW_REQUIRED")
+                    .summary("Review required.")
+                    .reasons(List.of("final_payload_missing"))
+                    .tags(List.of("fallback"))
+                    .recommendedAction("Review event manually.")
+                    .fallbackUsed(true)
+                    .build();
+            fallbackUsed = true;
+        }
 
+        finalPayload.setFallbackUsed(fallbackUsed);
+        finalPayload = auditAiService.enrichFinalAnalysis(auditEvent, finalPayload);
         finalPayload = validator.normalize(finalPayload);
 
         int successfulToolCount = (int) toolExecutions.stream()
@@ -178,12 +230,15 @@ public class BoundedReActOrchestrator {
                 .maxReasoningIterations(MAX_ITERATIONS)
                 .reasoningTruncated(!finalized)
                 .orchestrationMode("llm_react")
-                .fallbackReason(Boolean.TRUE.equals(finalPayload.getFallbackUsed()) ? "bounded_react_fallback" : null)
+                .fallbackReason(Boolean.TRUE.equals(finalPayload.getFallbackUsed())
+                        ? "bounded_react_fallback"
+                        : null)
                 .validatorStatus("OK")
                 .scoringNotes("Confidence derived from evidence count, tool success count, grounding, fallback, and risk score.")
                 .build();
 
-        log.info("[REACT][{}] completed grounded={} toolsInvoked={} iterations={} confidenceScore={} confidenceLabel={} riskScore={} category={}",
+        log.info(
+                "[REACT][{}] completed grounded={} toolsInvoked={} iterations={} confidenceScore={} confidenceLabel={} riskScore={} category={}",
                 eventId,
                 grounded,
                 !toolExecutions.isEmpty(),
@@ -191,7 +246,8 @@ public class BoundedReActOrchestrator {
                 finalPayload.getConfidenceScore(),
                 finalPayload.getConfidenceLabel(),
                 finalPayload.getRiskScore(),
-                finalPayload.getCategory());
+                finalPayload.getCategory()
+        );
 
         return ReActExecutionResult.builder()
                 .eventId(eventId)
@@ -211,12 +267,15 @@ public class BoundedReActOrchestrator {
         if (decision == null) {
             return "UNKNOWN";
         }
+
         if ("FINALIZE".equalsIgnoreCase(decision.getAction())) {
             return "FINALIZE";
         }
+
         if (decision.getToolRequest() != null && decision.getToolRequest().getToolName() != null) {
             return "TOOL:" + decision.getToolRequest().getToolName();
         }
+
         return decision.getAction();
     }
 }

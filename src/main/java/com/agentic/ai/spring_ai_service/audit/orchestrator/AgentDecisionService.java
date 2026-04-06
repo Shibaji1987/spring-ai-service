@@ -34,9 +34,9 @@ public class AgentDecisionService {
         boolean knownDevice = readBooleanMetadata(event, "knownDevice", true);
         boolean suspiciousLogin = loginEvent && (failed || geoAnomaly || !knownDevice || hasVpnSignal(event));
 
-        boolean hasRecentEventsObservation = hasObservationForTool(observations, "recent");
+        boolean hasRecentEventsObservation = hasObservationForTool(observations, "recent events");
         boolean hasFailedCountObservation = hasObservationForTool(observations, "failed login count");
-        boolean hasActivitySummaryObservation = hasObservationForTool(observations, "activity summary");
+        boolean hasActivitySummaryObservation = hasObservationForTool(observations, "user activity summary");
 
         if (currentIteration >= maxIterations) {
             log.info("[DECISION] finalize currentIteration={} reason=max_iterations", currentIteration);
