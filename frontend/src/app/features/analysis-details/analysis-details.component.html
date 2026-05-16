@@ -1,266 +1,38 @@
 <div class="space-y-6">
-
-  <div>
-    <div class="text-sm text-slate-400">
-      Audit Events › Submit Audit Event › Analysis: EVT-2025-05-28-001247
-    </div>
-
-    <div class="mt-3 flex items-center gap-3">
-      <h1 class="text-2xl font-semibold text-white">
-        Analysis: EVT-2025-05-28-001247
-      </h1>
-
-      <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-300">
-        ANALYSIS COMPLETE
-      </span>
-    </div>
+  <div class="flex items-center justify-between">
+    <h1 class="text-2xl font-semibold text-white">Analysis: {{ analysis()?.eventId || 'Loading...' }}</h1>
+    @if (analysis()) {
+      <app-risk-badge [score]="analysis()!.riskScore" />
+    }
   </div>
 
-  <div class="grid grid-cols-4 gap-4">
+  @if (analysisStore.loading()) {
+    <div class="rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-4 text-sm text-cyan-300">Loading analysis details...</div>
+  }
 
-    <div class="rounded-2xl border border-red-500/20 bg-red-500/10 p-5">
-      <div class="text-sm text-slate-300">Risk Score</div>
-      <div class="mt-3 text-4xl font-semibold text-red-400">85</div>
-      <div class="text-xs text-red-300">HIGH RISK</div>
-    </div>
+  @if (analysisStore.error()) {
+    <div class="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">{{ analysisStore.error() }}</div>
+  }
 
-    <div class="rounded-2xl border border-purple-500/20 bg-purple-500/10 p-5">
-      <div class="text-sm text-slate-300">Confidence Score</div>
-      <div class="mt-3 text-4xl font-semibold text-purple-300">92%</div>
-      <div class="text-xs text-purple-300">HIGH CONFIDENCE</div>
-    </div>
-
-    <div class="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-5">
-      <div class="text-sm text-slate-300">Verdict</div>
-      <div class="mt-3 text-xl font-semibold text-amber-300">POTENTIALLY MALICIOUS</div>
-      <div class="text-xs text-slate-400">Requires Review</div>
-    </div>
-
-    <div class="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-5">
-      <div class="text-sm text-slate-300">Processing Time</div>
-      <div class="mt-3 text-4xl font-semibold text-cyan-300">4.2s</div>
-      <div class="text-xs text-slate-400">Total Time</div>
-    </div>
-
-  </div>
-
-  <div class="flex gap-6 border-b border-slate-800 text-sm text-slate-400">
-    <div class="border-b-2 border-cyan-400 pb-3 text-cyan-300">Tool Trace</div>
-    <div class="pb-3">Overview</div>
-    <div class="pb-3">Risk Analysis</div>
-    <div class="pb-3">Policy Matches</div>
-    <div class="pb-3">AI Reasoning</div>
-    <div class="pb-3">Retrieval Evidence</div>
-    <div class="pb-3">Timeline</div>
-  </div>
-
-  <div class="grid grid-cols-3 gap-6">
-
-    <div class="col-span-2 rounded-2xl border border-slate-800 bg-slate-900 p-6">
-
-      <div class="mb-5 flex items-center justify-between">
-        <div>
-          <h2 class="text-lg font-medium text-white">Tool Execution Trace</h2>
-          <p class="mt-1 text-sm text-slate-400">
-            Detailed list of tools executed by the AI agent during analysis
-          </p>
-        </div>
-
-        <button class="rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-300">
-          Timeline View
-        </button>
+  @if (analysis()) {
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div class="rounded-xl border border-slate-800 bg-slate-900 p-5">
+        <div class="text-sm text-slate-400">Confidence</div>
+        <div class="mt-2 text-3xl text-purple-300">{{ analysis()!.confidenceScore | number : '1.0-0' }}%</div>
       </div>
+      <div class="rounded-xl border border-slate-800 bg-slate-900 p-5 lg:col-span-2">
+        <div class="text-sm text-slate-400">AI Summary</div>
+        <p class="mt-2 text-sm leading-6 text-slate-200">{{ analysis()!.summary }}</p>
+      </div>
+    </div>
 
+    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+      <h2 class="mb-4 text-lg font-medium text-white">Tool Execution Trace</h2>
       <div class="space-y-3">
-
-        <div class="grid grid-cols-12 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm">
-          <div class="col-span-1 text-cyan-300">1</div>
-          <div class="col-span-3">
-            <div class="font-medium text-white">getUserActivitySummary</div>
-            <div class="text-xs text-slate-400">Fetch recent user activity summary</div>
-          </div>
-          <div class="col-span-3 text-slate-400">
-            userId: john.doe&#64;bank.com<br />
-            days: 7
-          </div>
-          <div class="col-span-3 text-slate-300">
-            privilegedAccessCount: 14<br />
-            anomalyDetected: true
-          </div>
-          <div class="col-span-2 text-right">
-            <div class="text-emerald-400">SUCCESS</div>
-            <div class="text-xs text-slate-500">420ms · Conf 0.91</div>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-12 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm">
-          <div class="col-span-1 text-cyan-300">2</div>
-          <div class="col-span-3">
-            <div class="font-medium text-white">getRecentEvents</div>
-            <div class="text-xs text-slate-400">Retrieve recent audit events</div>
-          </div>
-          <div class="col-span-3 text-slate-400">
-            userId: john.doe&#64;bank.com<br />
-            limit: 20
-          </div>
-          <div class="col-span-3 text-slate-300">
-            suspiciousEvents: 4<br />
-            dataAccessSpike: true
-          </div>
-          <div class="col-span-2 text-right">
-            <div class="text-emerald-400">SUCCESS</div>
-            <div class="text-xs text-slate-500">300ms · Conf 0.90</div>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-12 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm">
-          <div class="col-span-1 text-cyan-300">3</div>
-          <div class="col-span-3">
-            <div class="font-medium text-white">getFailedLoginCount</div>
-            <div class="text-xs text-slate-400">Get failed login count</div>
-          </div>
-          <div class="col-span-3 text-slate-400">
-            userId: john.doe&#64;bank.com<br />
-            hours: 72
-          </div>
-          <div class="col-span-3 text-slate-300">
-            failedLogins: 12<br />
-            thresholdExceeded: true
-          </div>
-          <div class="col-span-2 text-right">
-            <div class="text-emerald-400">SUCCESS</div>
-            <div class="text-xs text-slate-500">210ms · Conf 0.88</div>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-12 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm">
-          <div class="col-span-1 text-cyan-300">4</div>
-          <div class="col-span-3">
-            <div class="font-medium text-white">getGeoLocationRisk</div>
-            <div class="text-xs text-slate-400">Check geo location risk</div>
-          </div>
-          <div class="col-span-3 text-slate-400">
-            ip: 10.45.23.187
-          </div>
-          <div class="col-span-3 text-slate-300">
-            unusualCountry: true<br />
-            vpnDetected: true
-          </div>
-          <div class="col-span-2 text-right">
-            <div class="text-emerald-400">SUCCESS</div>
-            <div class="text-xs text-slate-500">250ms · Conf 0.85</div>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-12 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm">
-          <div class="col-span-1 text-cyan-300">5</div>
-          <div class="col-span-3">
-            <div class="font-medium text-white">retrievePolicyDocuments</div>
-            <div class="text-xs text-slate-400">Retrieve relevant policies</div>
-          </div>
-          <div class="col-span-3 text-slate-400">
-            eventType: PRIVILEGED_ACCESS<br />
-            resource: Core Banking
-          </div>
-          <div class="col-span-3 text-slate-300">
-            matchedPolicies: POL-001, POL-007
-          </div>
-          <div class="col-span-2 text-right">
-            <div class="text-emerald-400">SUCCESS</div>
-            <div class="text-xs text-slate-500">670ms · Conf 0.93</div>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-12 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm">
-          <div class="col-span-1 text-cyan-300">6</div>
-          <div class="col-span-3">
-            <div class="font-medium text-white">semanticKnowledgeSearch</div>
-            <div class="text-xs text-slate-400">Search knowledge base with RAG</div>
-          </div>
-          <div class="col-span-3 text-slate-400">
-            query: privileged access misuse<br />
-            topK: 5
-          </div>
-          <div class="col-span-3 text-slate-300">
-            retrievedChunks: 5<br />
-            avgSimilarity: 0.91
-          </div>
-          <div class="col-span-2 text-right">
-            <div class="text-emerald-400">SUCCESS</div>
-            <div class="text-xs text-slate-500">890ms · Conf 0.91</div>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-12 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm">
-          <div class="col-span-1 text-cyan-300">7</div>
-          <div class="col-span-3">
-            <div class="font-medium text-white">finalizeAnalysis</div>
-            <div class="text-xs text-slate-400">Generate final verdict</div>
-          </div>
-          <div class="col-span-3 text-slate-400">
-            allPreviousOutputs: true
-          </div>
-          <div class="col-span-3 text-slate-300">
-            verdict: HIGH_RISK<br />
-            recommendation: Review Required
-          </div>
-          <div class="col-span-2 text-right">
-            <div class="text-emerald-400">SUCCESS</div>
-            <div class="text-xs text-slate-500">210ms · Conf 0.95</div>
-          </div>
-        </div>
-
+        @for (tool of analysis()!.toolExecutions; track tool.toolName; let i = $index) {
+          <app-tool-trace-card [execution]="tool" [index]="i" />
+        }
       </div>
-
-      <div class="mt-5 flex justify-between border-t border-slate-800 pt-4 text-sm text-slate-400">
-        <span>Total Steps: 7</span>
-        <span>Total Time: 4.2s</span>
-        <button class="text-cyan-300">View Full Trace JSON</button>
-      </div>
-
     </div>
-
-    <div class="space-y-6">
-
-      <div class="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-        <h3 class="text-lg font-medium text-white">AI Summary</h3>
-        <p class="mt-4 text-sm leading-6 text-slate-300">
-          The user john.doe&#64;bank.com performed privileged access from an unusual location and time.
-          Multiple high-risk indicators were detected, including failed login spikes, unusual geo location,
-          privilege escalation, and policy evidence matches.
-        </p>
-
-        <div class="mt-5 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
-          <div class="text-sm font-medium text-amber-300">Key Finding</div>
-          <p class="mt-2 text-sm text-amber-100">
-            Strong indicators of potential privileged access misuse. Manual review is recommended.
-          </p>
-        </div>
-      </div>
-
-      <div class="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-        <h3 class="text-lg font-medium text-white">Recommended Actions</h3>
-
-        <div class="mt-4 space-y-3">
-          <div class="rounded-xl border border-red-500/20 bg-red-500/10 p-4">
-            <div class="text-sm font-medium text-red-300">Immediate Review Required</div>
-            <p class="mt-1 text-sm text-slate-300">Assign this event to a SOC analyst.</p>
-          </div>
-
-          <div class="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
-            <div class="text-sm font-medium text-amber-300">Verify User Activity</div>
-            <p class="mt-1 text-sm text-slate-300">Contact user to verify whether access was authorized.</p>
-          </div>
-
-          <div class="rounded-xl border border-cyan-500/20 bg-cyan-500/10 p-4">
-            <div class="text-sm font-medium text-cyan-300">Monitor Similar Activity</div>
-            <p class="mt-1 text-sm text-slate-300">Monitor the user for similar behavior over 24 hours.</p>
-          </div>
-        </div>
-      </div>
-
-    </div>
-
-  </div>
-
+  }
 </div>
