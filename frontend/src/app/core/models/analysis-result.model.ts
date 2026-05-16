@@ -3,11 +3,13 @@ import { ToolExecution } from './tool-execution.model';
 
 export interface AnalysisResult {
 
-  eventId: string;
+  eventId?: string;
+
+  auditEventId?: string;
 
   riskScore: number;
 
-  confidenceScore: number;
+  confidenceScore?: number;
 
   category: string;
 
@@ -15,12 +17,16 @@ export interface AnalysisResult {
 
   recommendedAction: string;
 
-  reasoningTrace: string[];
+  reasons?: string[];
 
-  diagnostics: Record<string, any>;
+  tags?: string[];
 
-  toolExecutions: ToolExecution[];
+  reasoningTrace?: string[];
 
-  matchedPolicyEvidence: PolicyEvidence[];
+  diagnostics?: Record<string, any>;
+
+  toolExecutions?: ToolExecution[];
+
+  matchedPolicyEvidence?: PolicyEvidence[];
 
 }

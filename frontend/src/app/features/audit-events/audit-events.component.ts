@@ -19,15 +19,15 @@ export class AuditEventsComponent {
 
   readonly rowData = computed(() =>
     this.store.events().map((event) => ({
-      eventId: event.eventId,
+      eventId: event.id ?? event.eventId,
       eventType: event.eventType,
       actor: event.actor,
-      sourceSystem: event.sourceSystem,
+      sourceSystem: event.sourceSystem ?? event.metadata?.['sourceSystem'] ?? event.target ?? 'N/A',
       status: event.status,
-      riskScore: (event.payload?.['riskScore'] as number | undefined) ?? 0,
-      confidenceScore: (event.payload?.['confidenceScore'] as number | undefined) ?? 0,
+      riskScore: (event.payload?.['riskScore'] as number | undefined) ?? (event.metadata?.['riskScore'] as number | undefined) ?? 0,
+      confidenceScore: (event.payload?.['confidenceScore'] as number | undefined) ?? (event.metadata?.['confidenceScore'] as number | undefined) ?? 0,
       toolsUsed: Array.isArray(event.payload?.['toolExecutions']) ? event.payload['toolExecutions'].length : 0,
-      createdAt: event.timestamp
+      createdAt: event.timestamp ?? event.eventTime
     }))
   );
 

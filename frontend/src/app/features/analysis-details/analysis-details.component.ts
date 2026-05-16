@@ -18,6 +18,10 @@ export class AnalysisDetailsComponent {
 
   readonly analysis = computed(() => this.analysisStore.selectedAnalysis());
   readonly eventId = this.route.snapshot.paramMap.get('eventId');
+  readonly displayEventId = computed(() => this.analysis()?.eventId ?? this.analysis()?.auditEventId ?? this.eventId ?? 'AI Analysis');
+  readonly confidenceScore = computed(() => this.analysis()?.confidenceScore ?? 0);
+  readonly toolExecutions = computed(() => this.analysis()?.toolExecutions ?? []);
+  readonly reasons = computed(() => this.analysis()?.reasons ?? []);
 
   constructor() {
     if (this.eventId) {
