@@ -1,6 +1,6 @@
 <div class="space-y-6">
   <div class="flex items-center justify-between">
-    <h1 class="text-2xl font-semibold text-white">Analysis: {{ analysis()?.eventId || eventId || 'AI Analysis' }}</h1>
+    <h1 class="text-2xl font-semibold text-white">Analysis: {{ displayEventId() }}</h1>
     @if (analysis()) {
       <app-risk-badge [score]="analysis()!.riskScore" />
     }
@@ -34,7 +34,7 @@
     <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <div class="rounded-xl border border-slate-800 bg-slate-900 p-5">
         <div class="text-sm text-slate-400">Confidence</div>
-        <div class="mt-2 text-3xl text-purple-300">{{ analysis()!.confidenceScore | number : '1.0-0' }}%</div>
+        <div class="mt-2 text-3xl text-purple-300">{{ confidenceScore() | number : '1.0-0' }}%</div>
       </div>
       <div class="rounded-xl border border-slate-800 bg-slate-900 p-5 lg:col-span-2">
         <div class="text-sm text-slate-400">AI Summary</div>
@@ -42,11 +42,26 @@
       </div>
     </div>
 
+    @if (reasons().length) {
+      <div class="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+        <h2 class="mb-4 text-lg font-medium text-white">Reasoning</h2>
+        <ul class="space-y-2 text-sm text-slate-300">
+          @for (reason of reasons(); track reason) {
+            <li class="rounded-xl border border-slate-800 bg-slate-950 p-3">{{ reason }}</li>
+          }
+        </ul>
+      </div>
+    }
+
     <div class="rounded-2xl border border-slate-800 bg-slate-900 p-6">
       <h2 class="mb-4 text-lg font-medium text-white">Tool Execution Trace</h2>
       <div class="space-y-3">
-        @for (tool of analysis()!.toolExecutions; track tool.toolName; let i = $index) {
+        @for (tool of toolExecutions(); track tool.toolName; let i = $index) {
           <app-tool-trace-card [execution]="tool" [index]="i" />
+        } @empty {
+          <div class="rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+            No tool execution trace was returned by this backend endpoint.
+          </div>
         }
       </div>
     </div>

@@ -23,15 +23,13 @@ export class SubmitEventComponent {
   readonly error = signal<string | null>(null);
 
   payload = `{
-  "eventId": "EVT-2025-05-28-001247",
   "eventType": "PRIVILEGED_ACCESS",
   "actor": "john.doe@bank.com",
-  "sourceSystem": "Core Banking",
-  "timestamp": "2025-05-28T14:31:15Z",
+  "action": "LOGIN",
+  "target": "CBS-Enterprise",
   "status": "NEW",
-  "payload": {
-    "action": "LOGIN",
-    "resource": "CBS-Enterprise",
+  "metadata": {
+    "sourceSystem": "Core Banking",
     "ipAddress": "10.45.23.187"
   }
 }`;
@@ -55,8 +53,14 @@ export class SubmitEventComponent {
     try {
       const eventRequest = JSON.parse(this.payload) as AuditEvent;
       const submitted = await firstValueFrom(this.auditApi.submitEvent(eventRequest));
-      await firstValueFrom(this.analysisApi.analyzeEvent(submitted.eventId));
-      await this.router.navigate(['/analysis', submitted.eventId]);
+      const eventId = submitted.id ?? submitted.eventId;
+
+      if (!eventId) {
+        throw new Error('Saved event response did not include an id.');
+      }
+
+      await firstValueFrom(this.analysisApi.analyzeEvent(eventId));
+      await this.router.navigate(['/analysis', eventId]);
     } catch {
       this.error.set('Unable to submit/analyze event. Verify backend is running and payload matches API contract.');
     } finally {

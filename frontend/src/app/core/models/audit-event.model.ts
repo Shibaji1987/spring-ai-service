@@ -1,17 +1,27 @@
 export interface AuditEvent {
 
-  eventId:string;
+  id?: string;
+
+  eventId?: string;
 
   eventType: string;
 
   actor: string;
 
-  sourceSystem: string;
+  action?: string;
 
-  timestamp: string;
+  target?: string;
+
+  sourceSystem?: string;
+
+  eventTime?: string;
+
+  timestamp?: string;
 
   status: string;
 
-  payload: Record<string, any>;
+  metadata?: Record<string, any>;
+
+  payload?: Record<string, any>;
 
 }
