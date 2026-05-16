@@ -1,6 +1,6 @@
 export interface AuditEvent {
 
-  eventId: string;
+  eventId:string;
 
   eventType: string;
 
