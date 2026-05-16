@@ -77,14 +77,19 @@
 
         </div>
 
+        @if (error()) {
+          <div class="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">{{ error() }}</div>
+        }
+
         <!-- Actions -->
         <div class="mt-6 flex gap-4">
 
           <button
             (click)="analyzeEvent()"
+            [disabled]="loading()"
             class="rounded-xl bg-cyan-500 px-6 py-3 text-sm font-medium text-slate-950 transition hover:bg-cyan-400">
 
-            Analyze Event
+            {{ loading() ? "Analyzing..." : "Analyze Event" }}
 
           </button>
 

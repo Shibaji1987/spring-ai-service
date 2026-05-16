@@ -7,6 +7,7 @@ export interface ToolExecution {
     | 'FAILED'
     | 'RUNNING'
     | 'FALLBACK_USED'
+    | 'RETRYING'
     | 'SKIPPED';
 
   durationMs: number;
