@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.Instant;
+import java.util.List;
 
 @Getter
 @Setter
@@ -18,6 +19,7 @@ public class AuditAnalysisStreamEventDto {
     private String phase;
     private String status;
     private String message;
+    private List<MatchedPolicyEvidenceDto> matchedPolicyEvidence;
     private ToolExecutionDto toolExecution;
     private AuditAnalysisResponseDto analysis;
     private Instant timestamp;

@@ -113,13 +113,13 @@ public class AuditAgentService {
             String eventId,
             Consumer<AuditAnalysisStreamEventDto> progressSink
     ) {
-        emitProgress(progressSink, eventId, "ANALYSIS_STARTED", "RUNNING", "Starting tool-assisted audit analysis.", null, null);
+        emitProgress(progressSink, eventId, "ANALYSIS_STARTED", "RUNNING", "Starting tool-assisted audit analysis.", null, null, null);
 
         AuditEvent auditEvent = auditEventService.getEventById(eventId);
         String actor = safe(auditEvent.getActor());
         String eventText = buildEventText(auditEvent);
 
-        emitProgress(progressSink, eventId, "EVENT_LOADED", "COMPLETED", "Audit event loaded for analysis.", null, null);
+        emitProgress(progressSink, eventId, "EVENT_LOADED", "COMPLETED", "Audit event loaded for analysis.", null, null, null);
 
         List<MatchedPolicyEvidence> matchedPolicyEvidence = retrievePolicyEvidence(eventText);
         emitProgress(
@@ -128,6 +128,7 @@ public class AuditAgentService {
                 "POLICY_RETRIEVAL",
                 "COMPLETED",
                 "Retrieved " + matchedPolicyEvidence.size() + " policy evidence item(s).",
+                matchedPolicyEvidence,
                 null,
                 null
         );
@@ -166,7 +167,7 @@ public class AuditAgentService {
             ).ifPresent(toolObservations::add);
         }
 
-        emitProgress(progressSink, eventId, "AI_REASONING", "RUNNING", "Generating final risk assessment.", null, null);
+        emitProgress(progressSink, eventId, "AI_REASONING", "RUNNING", "Generating final risk assessment.", null, null, null);
 
         AgentFinalizePayload finalPayload = generateToolAwarePayload(auditEvent, matchedPolicyEvidence, toolObservations);
         finalPayload = analysisResponseValidator.normalize(finalPayload);
@@ -218,7 +219,7 @@ public class AuditAgentService {
         );
 
         AuditAnalysisResponseDto response = auditAnalysisMapper.toDto(saved);
-        emitProgress(progressSink, eventId, "ANALYSIS_COMPLETED", "COMPLETED", "Tool-assisted audit analysis completed.", null, response);
+        emitProgress(progressSink, eventId, "ANALYSIS_COMPLETED", "COMPLETED", "Tool-assisted audit analysis completed.", null, null, response);
         return response;
     }
 
@@ -425,7 +426,7 @@ public class AuditAgentService {
             String eventId
     ) {
         long start = System.currentTimeMillis();
-        emitProgress(progressSink, eventId, "TOOL_EXECUTION", "RUNNING", "Executing " + toolName + ".", null, null);
+        emitProgress(progressSink, eventId, "TOOL_EXECUTION", "RUNNING", "Executing " + toolName + ".", null, null, null);
 
         try {
             Object data = supplier.get();
@@ -443,7 +444,7 @@ public class AuditAgentService {
 
             toolExecutions.add(record);
 
-            emitProgress(progressSink, eventId, "TOOL_EXECUTION", "COMPLETED", toolName + " completed.", record, null);
+            emitProgress(progressSink, eventId, "TOOL_EXECUTION", "COMPLETED", toolName + " completed.", null, record, null);
             log.info("Tool executed successfully. tool={} durationMs={}", toolName, duration);
             return java.util.Optional.of(record.getOutputSummary());
 
@@ -462,7 +463,7 @@ public class AuditAgentService {
 
             toolExecutions.add(record);
 
-            emitProgress(progressSink, eventId, "TOOL_EXECUTION", "FAILED", toolName + " failed.", record, null);
+            emitProgress(progressSink, eventId, "TOOL_EXECUTION", "FAILED", toolName + " failed.", null, record, null);
             log.warn("Tool execution failed. tool={} durationMs={} error={}", toolName, duration, ex.getMessage());
             return java.util.Optional.empty();
         }
@@ -600,6 +601,7 @@ public class AuditAgentService {
             String phase,
             String status,
             String message,
+            List<MatchedPolicyEvidence> matchedPolicyEvidence,
             ToolExecutionRecord toolExecution,
             AuditAnalysisResponseDto analysis
     ) {
@@ -613,6 +615,7 @@ public class AuditAgentService {
                     .phase(phase)
                     .status(status)
                     .message(message)
+                    .matchedPolicyEvidence(auditAnalysisMapper.toEvidenceDtos(matchedPolicyEvidence))
                     .toolExecution(auditAnalysisMapper.toToolDto(toolExecution))
                     .analysis(analysis)
                     .timestamp(Instant.now())
