@@ -2,6 +2,7 @@ package com.agentic.ai.spring_ai_service.service;
 
 import com.agentic.ai.spring_ai_service.audit.dto.agent.AgentFinalizePayload;
 import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAnalysisResponseDto;
+import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAnalysisStreamEventDto;
 import com.agentic.ai.spring_ai_service.audit.mapper.AuditAnalysisMapper;
 import com.agentic.ai.spring_ai_service.audit.model.AnalysisDiagnostics;
 import com.agentic.ai.spring_ai_service.audit.model.AuditAiAnalysis;
@@ -18,10 +19,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 @Service
@@ -103,11 +106,32 @@ public class AuditAgentService {
      * Deterministic + tool-assisted analysis.
      */
     public AuditAnalysisResponseDto analyzeEventWithTools(String eventId) {
+        return analyzeEventWithTools(eventId, null);
+    }
+
+    public AuditAnalysisResponseDto analyzeEventWithTools(
+            String eventId,
+            Consumer<AuditAnalysisStreamEventDto> progressSink
+    ) {
+        emitProgress(progressSink, eventId, "ANALYSIS_STARTED", "RUNNING", "Starting tool-assisted audit analysis.", null, null);
+
         AuditEvent auditEvent = auditEventService.getEventById(eventId);
         String actor = safe(auditEvent.getActor());
         String eventText = buildEventText(auditEvent);
 
+        emitProgress(progressSink, eventId, "EVENT_LOADED", "COMPLETED", "Audit event loaded for analysis.", null, null);
+
         List<MatchedPolicyEvidence> matchedPolicyEvidence = retrievePolicyEvidence(eventText);
+        emitProgress(
+                progressSink,
+                eventId,
+                "POLICY_RETRIEVAL",
+                "COMPLETED",
+                "Retrieved " + matchedPolicyEvidence.size() + " policy evidence item(s).",
+                null,
+                null
+        );
+
         List<ToolExecutionRecord> toolExecutions = new ArrayList<>();
         List<String> toolObservations = new ArrayList<>();
 
@@ -115,7 +139,9 @@ public class AuditAgentService {
                 toolExecutions,
                 "getUserActivitySummary",
                 "actor=" + actor,
-                () -> auditTools.getUserActivitySummary(actor)
+                () -> auditTools.getUserActivitySummary(actor),
+                progressSink,
+                eventId
         ).ifPresent(toolObservations::add);
 
         if (toolExecutions.size() < MAX_TOOL_CALLS && isLoginEvent(auditEvent)) {
@@ -123,7 +149,9 @@ public class AuditAgentService {
                     toolExecutions,
                     "getFailedLoginCount",
                     "actor=" + actor,
-                    () -> auditTools.getFailedLoginCount(actor)
+                    () -> auditTools.getFailedLoginCount(actor),
+                    progressSink,
+                    eventId
             ).ifPresent(toolObservations::add);
         }
 
@@ -132,9 +160,13 @@ public class AuditAgentService {
                     toolExecutions,
                     "getRecentEvents",
                     "actor=" + actor + ", limit=5",
-                    () -> auditTools.getRecentEvents(actor, 5)
+                    () -> auditTools.getRecentEvents(actor, 5),
+                    progressSink,
+                    eventId
             ).ifPresent(toolObservations::add);
         }
+
+        emitProgress(progressSink, eventId, "AI_REASONING", "RUNNING", "Generating final risk assessment.", null, null);
 
         AgentFinalizePayload finalPayload = generateToolAwarePayload(auditEvent, matchedPolicyEvidence, toolObservations);
         finalPayload = analysisResponseValidator.normalize(finalPayload);
@@ -185,7 +217,9 @@ public class AuditAgentService {
                 "v3.0.0"
         );
 
-        return auditAnalysisMapper.toDto(saved);
+        AuditAnalysisResponseDto response = auditAnalysisMapper.toDto(saved);
+        emitProgress(progressSink, eventId, "ANALYSIS_COMPLETED", "COMPLETED", "Tool-assisted audit analysis completed.", null, response);
+        return response;
     }
 
     /**
@@ -379,7 +413,19 @@ public class AuditAgentService {
             String inputSummary,
             ToolSupplier supplier
     ) {
+        return safeToolCall(toolExecutions, toolName, inputSummary, supplier, null, null);
+    }
+
+    private java.util.Optional<String> safeToolCall(
+            List<ToolExecutionRecord> toolExecutions,
+            String toolName,
+            String inputSummary,
+            ToolSupplier supplier,
+            Consumer<AuditAnalysisStreamEventDto> progressSink,
+            String eventId
+    ) {
         long start = System.currentTimeMillis();
+        emitProgress(progressSink, eventId, "TOOL_EXECUTION", "RUNNING", "Executing " + toolName + ".", null, null);
 
         try {
             Object data = supplier.get();
@@ -397,6 +443,7 @@ public class AuditAgentService {
 
             toolExecutions.add(record);
 
+            emitProgress(progressSink, eventId, "TOOL_EXECUTION", "COMPLETED", toolName + " completed.", record, null);
             log.info("Tool executed successfully. tool={} durationMs={}", toolName, duration);
             return java.util.Optional.of(record.getOutputSummary());
 
@@ -415,6 +462,7 @@ public class AuditAgentService {
 
             toolExecutions.add(record);
 
+            emitProgress(progressSink, eventId, "TOOL_EXECUTION", "FAILED", toolName + " failed.", record, null);
             log.warn("Tool execution failed. tool={} durationMs={} error={}", toolName, duration, ex.getMessage());
             return java.util.Optional.empty();
         }
@@ -544,6 +592,34 @@ public class AuditAgentService {
             return value;
         }
         return value.substring(0, maxLen);
+    }
+
+    private void emitProgress(
+            Consumer<AuditAnalysisStreamEventDto> progressSink,
+            String eventId,
+            String phase,
+            String status,
+            String message,
+            ToolExecutionRecord toolExecution,
+            AuditAnalysisResponseDto analysis
+    ) {
+        if (progressSink == null) {
+            return;
+        }
+
+        try {
+            progressSink.accept(AuditAnalysisStreamEventDto.builder()
+                    .eventId(eventId)
+                    .phase(phase)
+                    .status(status)
+                    .message(message)
+                    .toolExecution(auditAnalysisMapper.toToolDto(toolExecution))
+                    .analysis(analysis)
+                    .timestamp(Instant.now())
+                    .build());
+        } catch (RuntimeException ex) {
+            log.warn("Unable to emit audit analysis progress. eventId={} phase={} error={}", eventId, phase, ex.getMessage());
+        }
     }
 
     @FunctionalInterface
