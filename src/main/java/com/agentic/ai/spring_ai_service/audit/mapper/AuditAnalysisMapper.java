@@ -84,17 +84,25 @@ public class AuditAnalysisMapper {
                 .collect(Collectors.toList());
     }
 
+    public ToolExecutionDto toToolDto(ToolExecutionRecord item) {
+        if (item == null) {
+            return null;
+        }
+
+        return ToolExecutionDto.builder()
+                .toolName(item.getToolName())
+                .success(item.getSuccess())
+                .durationMs(item.getDurationMs())
+                .inputSummary(item.getInputSummary())
+                .outputSummary(item.getOutputSummary())
+                .errorMessage(item.getErrorMessage())
+                .executedAt(item.getExecutedAt())
+                .build();
+    }
+
     private List<ToolExecutionDto> toToolDtos(List<ToolExecutionRecord> items) {
         return defaultList(items).stream()
-                .map(item -> ToolExecutionDto.builder()
-                        .toolName(item.getToolName())
-                        .success(item.getSuccess())
-                        .durationMs(item.getDurationMs())
-                        .inputSummary(item.getInputSummary())
-                        .outputSummary(item.getOutputSummary())
-                        .errorMessage(item.getErrorMessage())
-                        .executedAt(item.getExecutedAt())
-                        .build())
+                .map(this::toToolDto)
                 .collect(Collectors.toList());
     }
 
