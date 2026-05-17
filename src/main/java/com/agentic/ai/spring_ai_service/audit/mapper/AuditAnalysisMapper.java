@@ -73,7 +73,7 @@ public class AuditAnalysisMapper {
         return dto;
     }
 
-    private List<MatchedPolicyEvidenceDto> toEvidenceDtos(List<MatchedPolicyEvidence> items) {
+    public List<MatchedPolicyEvidenceDto> toEvidenceDtos(List<MatchedPolicyEvidence> items) {
         return defaultList(items).stream()
                 .map(item -> MatchedPolicyEvidenceDto.builder()
                         .policyName(item.getPolicyName())
