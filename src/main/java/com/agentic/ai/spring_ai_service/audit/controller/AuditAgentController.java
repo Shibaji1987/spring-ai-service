@@ -13,6 +13,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.function.Consumer;
 
 @RestController
 @RequestMapping("/audit")
@@ -39,21 +40,38 @@ public class AuditAgentController {
     @GetMapping(value = "/analyze-with-tools/{eventId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @PreAuthorize("hasAnyRole('ADMIN', 'ANALYST')")
     public SseEmitter streamAnalyzeWithTools(@PathVariable String eventId) {
+        return streamAnalysis(eventId, progressSink ->
+                auditAgentService.analyzeEventWithTools(eventId, progressSink));
+    }
+
+    @PostMapping("/analyze-with-llm-tools/{eventId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ANALYST')")
+    public AuditAnalysisResponseDto analyzeWithLlmTools(@PathVariable String eventId) {
+        return auditAgentService.analyzeEventWithLlmTools(eventId);
+    }
+
+    @GetMapping(value = "/analyze-with-llm-tools/{eventId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PreAuthorize("hasAnyRole('ADMIN', 'ANALYST')")
+    public SseEmitter streamAnalyzeWithLlmTools(@PathVariable String eventId) {
+        return streamAnalysis(
+                eventId,
+                progressSink -> auditAgentService.analyzeEventWithLlmTools(eventId, progressSink)
+        );
+    }
+
+    private SseEmitter streamAnalysis(
+            String eventId,
+            StreamingAnalysis analysis
+    ) {
         SseEmitter emitter = new SseEmitter(ANALYSIS_STREAM_TIMEOUT_MS);
 
         taskExecutor.execute(() -> {
             try {
-                auditAgentService.analyzeEventWithTools(eventId, event -> sendEvent(emitter, event));
+                analysis.run(event -> sendEvent(emitter, event));
                 emitter.complete();
             } catch (Exception ex) {
-                log.error("Streaming tool analysis failed. eventId={} error={}", eventId, ex.getMessage(), ex);
-                sendEvent(emitter, AuditAnalysisStreamEventDto.builder()
-                        .eventId(eventId)
-                        .phase("ANALYSIS_FAILED")
-                        .status("FAILED")
-                        .message(ex.getMessage())
-                        .timestamp(Instant.now())
-                        .build());
+                log.error("Streaming LLM analysis failed. eventId={} error={}", eventId, ex.getMessage(), ex);
+                sendEvent(emitter, failureEvent(eventId, ex));
                 emitter.completeWithError(ex);
             }
         });
@@ -61,10 +79,14 @@ public class AuditAgentController {
         return emitter;
     }
 
-    @PostMapping("/analyze-with-llm-tools/{eventId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'ANALYST')")
-    public AuditAnalysisResponseDto analyzeWithLlmTools(@PathVariable String eventId) {
-        return auditAgentService.analyzeEventWithLlmDrivenTools(eventId);
+    private AuditAnalysisStreamEventDto failureEvent(String eventId, Exception ex) {
+        return AuditAnalysisStreamEventDto.builder()
+                .eventId(eventId)
+                .phase("ANALYSIS_FAILED")
+                .status("FAILED")
+                .message(ex.getMessage())
+                .timestamp(Instant.now())
+                .build();
     }
 
     private void sendEvent(SseEmitter emitter, AuditAnalysisStreamEventDto event) {
@@ -83,5 +105,10 @@ public class AuditAgentController {
         }
 
         return phase.toLowerCase().replace('_', '-');
+    }
+
+    @FunctionalInterface
+    private interface StreamingAnalysis {
+        void run(Consumer<AuditAnalysisStreamEventDto> progressSink);
     }
 }

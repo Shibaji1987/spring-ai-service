@@ -10,7 +10,7 @@ import com.agentic.ai.spring_ai_service.audit.model.AuditEvent;
 import com.agentic.ai.spring_ai_service.audit.model.KnowledgeChunk;
 import com.agentic.ai.spring_ai_service.audit.model.MatchedPolicyEvidence;
 import com.agentic.ai.spring_ai_service.audit.model.ToolExecutionRecord;
-import com.agentic.ai.spring_ai_service.audit.orchestrator.BoundedReActOrchestrator;
+import com.agentic.ai.spring_ai_service.audit.orchestrator.BoundedLlmToolOrchestrator;
 import com.agentic.ai.spring_ai_service.audit.orchestrator.ReActExecutionResult;
 import com.agentic.ai.spring_ai_service.audit.tools.AuditTools;
 import lombok.RequiredArgsConstructor;
@@ -45,7 +45,8 @@ public class AuditAgentService {
     private final AnalysisConfidenceService analysisConfidenceService;
     private final AnalysisResponseValidator analysisResponseValidator;
     private final AuditAnalysisMapper auditAnalysisMapper;
-    private final BoundedReActOrchestrator boundedReActOrchestrator;
+    private final BoundedLlmToolOrchestrator boundedLlmToolOrchestrator;
+    private final AuditAnalysisContextService auditAnalysisContextService;
 
     /**
      * Base deterministic analysis without tool execution.
@@ -227,17 +228,37 @@ public class AuditAgentService {
      * Bounded ReAct analysis with persisted reasoning trace.
      */
     public AuditAnalysisResponseDto analyzeEventWithLlmTools(String eventId) {
-        AuditEvent auditEvent = auditEventService.getEventById(eventId);
-        String eventText = buildEventText(auditEvent);
+        return analyzeEventWithLlmTools(eventId, null);
+    }
 
-        List<MatchedPolicyEvidence> matchedPolicyEvidence = retrievePolicyEvidence(eventText);
+    public AuditAnalysisResponseDto analyzeEventWithLlmTools(
+            String eventId,
+            Consumer<AuditAnalysisStreamEventDto> progressSink
+    ) {
+        emitProgress(progressSink, eventId, "ANALYSIS_STARTED", "RUNNING",
+                "Starting bounded LLM-directed audit investigation.", null, null, null);
 
-        ReActExecutionResult result = boundedReActOrchestrator.execute(
+        AuditAnalysisContext context = auditAnalysisContextService.load(eventId);
+        emitProgress(progressSink, eventId, "EVENT_LOADED", "COMPLETED",
+                "Audit event loaded for LLM investigation.", null, null, null);
+        emitProgress(progressSink, eventId, "POLICY_RETRIEVAL", "COMPLETED",
+                "Retrieved " + context.policyEvidence().size() + " policy evidence item(s).",
+                context.policyEvidence(), null, null);
+
+        ReActExecutionResult result = boundedLlmToolOrchestrator.execute(
                 eventId,
-                auditEvent,
-                matchedPolicyEvidence
+                context.auditEvent(),
+                context.policyEvidence(),
+                progressSink
         );
 
+        AuditAnalysisResponseDto response = persistLlmAnalysis(eventId, result);
+        emitProgress(progressSink, eventId, "ANALYSIS_COMPLETED", "COMPLETED",
+                "LLM-directed audit investigation completed.", null, null, response);
+        return response;
+    }
+
+    private AuditAnalysisResponseDto persistLlmAnalysis(String eventId, ReActExecutionResult result) {
         AuditAiAnalysis saved = auditAnalysisPersistenceService.upsertAnalysis(
                 eventId,
                 result.getFinalPayload(),
@@ -250,17 +271,10 @@ public class AuditAgentService {
                 result.isToolsInvoked(),
                 result.isAnalysisSucceeded(),
                 "openai-via-spring-ai",
-                "v3.0.0"
+                "v4.0.0"
         );
 
         return auditAnalysisMapper.toDto(saved);
-    }
-
-    /**
-     * Optional compatibility method if your controller still calls the old name.
-     */
-    public AuditAnalysisResponseDto analyzeEventWithLlmDrivenTools(String eventId) {
-        return analyzeEventWithLlmTools(eventId);
     }
 
     private List<MatchedPolicyEvidence> retrievePolicyEvidence(String eventText) {
