@@ -1,6 +1,7 @@
 package com.agentic.ai.spring_ai_service.exception;
 
 import com.agentic.ai.spring_ai_service.dto.common.ApiError;
+import jakarta.validation.ConstraintViolationException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +21,31 @@ public class GlobalExceptionHandler {
                 .getFieldErrors()
                 .stream()
                 .map(this::toViolation)
+                .toList();
+
+        ApiError body = new ApiError(
+                Instant.now(),
+                HttpStatus.BAD_REQUEST.value(),
+                "Bad Request",
+                "Validation failed",
+                req.getRequestURI(),
+                violations
+        );
+
+        return ResponseEntity.badRequest().body(body);
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ApiError> handleConstraintViolation(
+            ConstraintViolationException ex,
+            HttpServletRequest req
+    ) {
+        List<ApiError.FieldViolation> violations = ex.getConstraintViolations()
+                .stream()
+                .map(violation -> new ApiError.FieldViolation(
+                        violation.getPropertyPath().toString(),
+                        violation.getMessage()
+                ))
                 .toList();
 
         ApiError body = new ApiError(
