@@ -17,6 +17,7 @@ import org.springframework.security.config.annotation.authentication.configurati
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -27,6 +28,8 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
 import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
@@ -49,10 +52,28 @@ public class SecurityConfig {
     @Value("${app.security.user.password}")
     private String password;
 
+    @Value("${app.security.users.admin.username:admin}")
+    private String adminUsername;
+
+    @Value("${app.security.users.admin.password:Admin@12345}")
+    private String adminPassword;
+
+    @Value("${app.security.users.policy-manager.username:policy-manager}")
+    private String policyManagerUsername;
+
+    @Value("${app.security.users.policy-manager.password:Policy@12345}")
+    private String policyManagerPassword;
+
+    @Value("${app.security.users.viewer.username:viewer}")
+    private String viewerUsername;
+
+    @Value("${app.security.users.viewer.password:Viewer@12345}")
+    private String viewerPassword;
+
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         return http
-                .csrf(csrf -> csrf.disable())
+                .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
@@ -67,17 +88,31 @@ public class SecurityConfig {
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .bearerTokenResolver(bearerTokenResolver())
-                        .jwt(Customizer.withDefaults())
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
                 )
                 .build();
     }
 
     @Bean
     UserDetailsService userDetailsService(PasswordEncoder passwordEncoder) {
-        return new InMemoryUserDetailsManager(User.withUsername(username)
-                .password(passwordEncoder.encode(password))
-                .roles("ANALYST")
-                .build());
+        return new InMemoryUserDetailsManager(
+                User.withUsername(adminUsername)
+                        .password(passwordEncoder.encode(adminPassword))
+                        .roles("ADMIN")
+                        .build(),
+                User.withUsername(policyManagerUsername)
+                        .password(passwordEncoder.encode(policyManagerPassword))
+                        .roles("POLICY_MANAGER")
+                        .build(),
+                User.withUsername(username)
+                        .password(passwordEncoder.encode(password))
+                        .roles("ANALYST")
+                        .build(),
+                User.withUsername(viewerUsername)
+                        .password(passwordEncoder.encode(viewerPassword))
+                        .roles("VIEWER")
+                        .build()
+        );
     }
 
     @Bean
@@ -100,6 +135,17 @@ public class SecurityConfig {
         return NimbusJwtDecoder.withSecretKey(jwtSecretKey())
                 .macAlgorithm(MacAlgorithm.HS256)
                 .build();
+    }
+
+    @Bean
+    JwtAuthenticationConverter jwtAuthenticationConverter() {
+        JwtGrantedAuthoritiesConverter authoritiesConverter = new JwtGrantedAuthoritiesConverter();
+        authoritiesConverter.setAuthoritiesClaimName("roles");
+        authoritiesConverter.setAuthorityPrefix("");
+
+        JwtAuthenticationConverter authenticationConverter = new JwtAuthenticationConverter();
+        authenticationConverter.setJwtGrantedAuthoritiesConverter(authoritiesConverter);
+        return authenticationConverter;
     }
 
     @Bean

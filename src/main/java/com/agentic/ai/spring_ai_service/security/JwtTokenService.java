@@ -27,6 +27,9 @@ public class JwtTokenService {
         List<String> roles = authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .toList();
+        List<String> responseRoles = roles.stream()
+                .map(role -> role.startsWith("ROLE_") ? role.substring(5) : role)
+                .toList();
 
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer("agentic-ai-audit-platform")
@@ -39,6 +42,6 @@ public class JwtTokenService {
         String token = jwtEncoder.encode(JwtEncoderParameters.from(JwsHeader.with(() -> "HS256").build(), claims))
                 .getTokenValue();
 
-        return new LoginResponse(token, "Bearer", expiresAt, authentication.getName());
+        return new LoginResponse(token, "Bearer", expiresAt, authentication.getName(), responseRoles);
     }
 }

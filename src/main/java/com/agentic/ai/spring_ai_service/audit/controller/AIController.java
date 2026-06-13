@@ -1,6 +1,7 @@
 package com.agentic.ai.spring_ai_service.audit.controller;
 
 import com.agentic.ai.spring_ai_service.service.AIService;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -19,6 +20,7 @@ public class AIController {
     }
 
     @GetMapping("/ask")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ANALYST')")
     public Map<String, String> ask(@RequestParam String question) {
 
         String answer = aiService.ask(question);

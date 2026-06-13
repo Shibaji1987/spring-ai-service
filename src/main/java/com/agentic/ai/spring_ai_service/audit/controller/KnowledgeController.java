@@ -11,6 +11,7 @@ import com.agentic.ai.spring_ai_service.service.KnowledgeRetrievalService;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -35,6 +36,7 @@ public class KnowledgeController {
     }
 
     @GetMapping("/documents")
+    @PreAuthorize("hasAnyRole('ADMIN', 'POLICY_MANAGER', 'ANALYST', 'VIEWER')")
     public KnowledgeDocumentPageResponse getDocuments(
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "25") @Min(1) @Max(100) int size,
@@ -46,6 +48,7 @@ public class KnowledgeController {
 
     @PostMapping("/documents")
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAnyRole('ADMIN', 'POLICY_MANAGER')")
     public Map<String, Object> ingestDocument(@RequestBody KnowledgeDocumentRequest request) {
         KnowledgeDocument document = new KnowledgeDocument();
         document.setTitle(request.title());
@@ -64,6 +67,7 @@ public class KnowledgeController {
     }
 
     @GetMapping("/search")
+    @PreAuthorize("hasAnyRole('ADMIN', 'POLICY_MANAGER', 'ANALYST', 'VIEWER')")
     public List<KnowledgeSearchResponse> searchKnowledge(
             @RequestParam("query") String query,
             @RequestParam(value = "topK", defaultValue = "3") int topK) {

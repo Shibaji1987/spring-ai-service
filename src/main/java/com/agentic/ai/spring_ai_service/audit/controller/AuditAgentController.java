@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -29,12 +30,14 @@ public class AuditAgentController {
     }
 
     @PostMapping("/analyze-with-tools/{eventId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ANALYST')")
     public AuditAnalysisResponseDto analyzeWithTools(@PathVariable String eventId) {
         log.info("Invoking Agent");
         return auditAgentService.analyzeEventWithTools(eventId);
     }
 
     @GetMapping(value = "/analyze-with-tools/{eventId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PreAuthorize("hasAnyRole('ADMIN', 'ANALYST')")
     public SseEmitter streamAnalyzeWithTools(@PathVariable String eventId) {
         SseEmitter emitter = new SseEmitter(ANALYSIS_STREAM_TIMEOUT_MS);
 
@@ -59,6 +62,7 @@ public class AuditAgentController {
     }
 
     @PostMapping("/analyze-with-llm-tools/{eventId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ANALYST')")
     public AuditAnalysisResponseDto analyzeWithLlmTools(@PathVariable String eventId) {
         return auditAgentService.analyzeEventWithLlmDrivenTools(eventId);
     }
