@@ -29,8 +29,17 @@ public class OpenApiConfig {
                 .addSecurityItem(new SecurityRequirement().addList(JWT_SECURITY_SCHEME))
                 .info(new Info()
                         .title("Agentic AI Audit Microservice API")
-                        .description("Policy-grounded audit event analysis service using Spring AI, MongoDB, and retrieval.")
-                        .version("v1")
+                        .description("""
+                                Policy-grounded audit event analysis using Spring AI, MongoDB, retrieval, and bounded tools.
+
+                                Recommended analysis lifecycle:
+                                1. POST /audit/events/{eventId}/analysis-runs to create one run.
+                                2. GET /audit/analysis-runs/{runId}/stream to observe live progress.
+                                3. GET /audit/analysis-runs/{runId} to retrieve durable status or the final result.
+
+                                Endpoints marked deprecated are retained only for backward compatibility.
+                                """)
+                        .version("v2")
                         .contact(new Contact()
                                 .name("Shibaji")
                                 .email("your-email@example.com"))
