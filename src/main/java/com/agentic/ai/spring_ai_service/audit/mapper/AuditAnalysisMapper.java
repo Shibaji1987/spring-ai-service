@@ -97,6 +97,10 @@ public class AuditAnalysisMapper {
                 .outputSummary(item.getOutputSummary())
                 .errorMessage(item.getErrorMessage())
                 .executedAt(item.getExecutedAt())
+                .source(item.getSource())
+                .confidence(item.getConfidence())
+                .evidenceIds(defaultList(item.getEvidenceIds()))
+                .limitations(defaultList(item.getLimitations()))
                 .build();
     }
 

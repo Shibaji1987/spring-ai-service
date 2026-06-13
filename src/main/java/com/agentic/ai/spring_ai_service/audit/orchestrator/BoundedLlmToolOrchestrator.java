@@ -28,8 +28,8 @@ import java.util.function.Consumer;
 @RequiredArgsConstructor
 public class BoundedLlmToolOrchestrator {
 
-    private static final int MAX_ITERATIONS = 5;
-    private static final int MAX_TOOL_CALLS = 3;
+    private static final int MAX_ITERATIONS = 8;
+    private static final int MAX_TOOL_CALLS = 6;
 
     private final AgentDecisionService agentDecisionService;
     private final ToolExecutionOrchestrator toolExecutionOrchestrator;
@@ -79,6 +79,8 @@ public class BoundedLlmToolOrchestrator {
                 iteration,
                 MAX_ITERATIONS
         );
+
+        log.info( "decision from llm  ==> {} ", decision);
 
         if (decision == null) {
             state.fail("The LLM decision could not be generated.");
@@ -197,7 +199,7 @@ public class BoundedLlmToolOrchestrator {
                 .orchestrationMode("llm_directed_tools")
                 .fallbackReason(fallbackUsed ? defaultFailureReason(state.failureReason()) : null)
                 .validatorStatus("OK")
-                .scoringNotes("Confidence derives from grounding, successful tool observations, fallback state, and risk.")
+                .scoringNotes("Confidence derives from policy grounding, successful evidence tools, provenance, fallback state, and risk.")
                 .build();
     }
 
