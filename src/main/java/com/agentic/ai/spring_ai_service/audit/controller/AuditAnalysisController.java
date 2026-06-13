@@ -4,6 +4,7 @@ package com.agentic.ai.spring_ai_service.audit.controller;
 import com.agentic.ai.spring_ai_service.audit.dto.response.AuditAnalysisResultDto;
 import com.agentic.ai.spring_ai_service.audit.model.AuditAiAnalysis;
 import com.agentic.ai.spring_ai_service.service.AuditAnalysisService;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -19,21 +20,25 @@ public class AuditAnalysisController {
     }
 
     @PostMapping("/analyze/{eventId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ANALYST')")
     public AuditAnalysisResultDto analyze(@PathVariable String eventId) {
         return auditAnalysisService.analyze(eventId);
     }
 
     @GetMapping("/analysis")
+    @PreAuthorize("hasAnyRole('ADMIN', 'POLICY_MANAGER', 'ANALYST', 'VIEWER')")
     public List<AuditAiAnalysis> getAllAnalysis() {
         return auditAnalysisService.getAllAnalysis();
     }
 
     @GetMapping("/analysis/{eventId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'POLICY_MANAGER', 'ANALYST', 'VIEWER')")
     public AuditAiAnalysis getAnalysisByEventId(@PathVariable String eventId) {
         return auditAnalysisService.getAnalysisByEventId(eventId);
     }
 
     @GetMapping("/full/{eventId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'POLICY_MANAGER', 'ANALYST', 'VIEWER')")
     public AuditAnalysisResultDto getFullAnalysis(@PathVariable String eventId) {
         return auditAnalysisService.getFullAnalysis(eventId);
     }
