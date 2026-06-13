@@ -1,28 +1,47 @@
 package com.agentic.ai.spring_ai_service.audit.controller;
 
 import com.agentic.ai.spring_ai_service.audit.dto.request.KnowledgeDocumentRequest;
+import com.agentic.ai.spring_ai_service.audit.dto.response.KnowledgeDocumentPageResponse;
 import com.agentic.ai.spring_ai_service.audit.dto.response.KnowledgeSearchResponse;
 import com.agentic.ai.spring_ai_service.audit.model.KnowledgeChunk;
 import com.agentic.ai.spring_ai_service.audit.model.KnowledgeDocument;
+import com.agentic.ai.spring_ai_service.service.KnowledgeCatalogService;
 import com.agentic.ai.spring_ai_service.service.KnowledgeIngestionService;
 import com.agentic.ai.spring_ai_service.service.KnowledgeRetrievalService;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import org.springframework.http.HttpStatus;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
 
+@Validated
 @RestController
 @RequestMapping("/knowledge")
 public class KnowledgeController {
 
+    private final KnowledgeCatalogService knowledgeCatalogService;
     private final KnowledgeIngestionService knowledgeIngestionService;
     private final KnowledgeRetrievalService knowledgeRetrievalService;
 
-    public KnowledgeController(KnowledgeIngestionService knowledgeIngestionService,
+    public KnowledgeController(KnowledgeCatalogService knowledgeCatalogService,
+                               KnowledgeIngestionService knowledgeIngestionService,
                                KnowledgeRetrievalService knowledgeRetrievalService) {
+        this.knowledgeCatalogService = knowledgeCatalogService;
         this.knowledgeIngestionService = knowledgeIngestionService;
         this.knowledgeRetrievalService = knowledgeRetrievalService;
+    }
+
+    @GetMapping("/documents")
+    public KnowledgeDocumentPageResponse getDocuments(
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "25") @Min(1) @Max(100) int size,
+            @RequestParam(defaultValue = "") String query,
+            @RequestParam(defaultValue = "") String sourceType
+    ) {
+        return knowledgeCatalogService.getDocuments(page, size, query, sourceType);
     }
 
     @PostMapping("/documents")
