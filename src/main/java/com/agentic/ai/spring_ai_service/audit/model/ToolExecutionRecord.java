@@ -3,6 +3,7 @@ package com.agentic.ai.spring_ai_service.audit.model;
 import lombok.*;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Getter
 @Setter
@@ -17,4 +18,8 @@ public class ToolExecutionRecord {
     private String outputSummary;
     private String errorMessage;
     private LocalDateTime executedAt;
+    private String source;
+    private Double confidence;
+    private List<String> evidenceIds;
+    private List<String> limitations;
 }

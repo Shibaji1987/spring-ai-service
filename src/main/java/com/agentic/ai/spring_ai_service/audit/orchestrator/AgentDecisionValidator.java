@@ -3,20 +3,14 @@ package com.agentic.ai.spring_ai_service.audit.orchestrator;
 import com.agentic.ai.spring_ai_service.audit.dto.agent.AgentDecision;
 import com.agentic.ai.spring_ai_service.audit.dto.agent.AgentToolRequest;
 import com.agentic.ai.spring_ai_service.audit.model.AuditEvent;
+import com.agentic.ai.spring_ai_service.audit.tools.InvestigationToolCatalog;
 import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 
 @Component
 public class AgentDecisionValidator {
-
-    private static final Set<String> ALLOWED_TOOLS = Set.of(
-            "getUserActivitySummary",
-            "getFailedLoginCount",
-            "getRecentEvents"
-    );
 
     public AgentDecision validate(
             AgentDecision decision,
@@ -39,15 +33,20 @@ public class AgentDecisionValidator {
         }
 
         AgentToolRequest request = decision.getToolRequest();
-        if (request == null || !ALLOWED_TOOLS.contains(request.getToolName())) {
+        if (request == null || !InvestigationToolCatalog.contains(request.getToolName())) {
             throw new IllegalArgumentException("LLM requested a tool that is not allowlisted.");
         }
 
         Map<String, Object> safeArgs = new HashMap<>();
+        safeArgs.put("eventId", safe(auditEvent == null ? null : auditEvent.getId()));
         safeArgs.put("actor", auditEvent == null || auditEvent.getActor() == null ? "" : auditEvent.getActor());
+        safeArgs.put("target", safe(auditEvent == null ? null : auditEvent.getTarget()));
 
         if ("getRecentEvents".equals(request.getToolName())) {
             safeArgs.put("limit", clampLimit(request.getToolArgs()));
+        }
+        if ("getRelatedEventSequence".equals(request.getToolName())) {
+            safeArgs.put("hours", clampHours(request.getToolArgs()));
         }
 
         request.setToolArgs(safeArgs);
@@ -79,6 +78,22 @@ public class AgentDecisionValidator {
         } catch (NumberFormatException ex) {
             return 5;
         }
+    }
+
+    private int clampHours(Map<String, Object> args) {
+        if (args == null || args.get("hours") == null) {
+            return 24;
+        }
+        try {
+            int requested = Integer.parseInt(String.valueOf(args.get("hours")));
+            return Math.max(1, Math.min(requested, 168));
+        } catch (NumberFormatException ex) {
+            return 24;
+        }
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value;
     }
 
     private String sanitizeRationale(String rationale) {

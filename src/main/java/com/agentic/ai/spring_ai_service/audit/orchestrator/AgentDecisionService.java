@@ -3,6 +3,7 @@ package com.agentic.ai.spring_ai_service.audit.orchestrator;
 import com.agentic.ai.spring_ai_service.audit.dto.agent.AgentDecision;
 import com.agentic.ai.spring_ai_service.audit.model.AuditEvent;
 import com.agentic.ai.spring_ai_service.audit.model.MatchedPolicyEvidence;
+import com.agentic.ai.spring_ai_service.audit.tools.InvestigationToolCatalog;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -27,21 +28,23 @@ public class AgentDecisionService {
             - TOOL: request one allowlisted tool only when more evidence is necessary.
             - FINALIZE: return the complete risk assessment when evidence is sufficient.
 
-            Allowed tools:
-            1. getUserActivitySummary(actor)
-            2. getFailedLoginCount(actor)
-            3. getRecentEvents(actor, limit)
+            Allowed read-only tools:
+            %s
 
             Rules:
             - Never invent tools.
-            - Never request a different actor than the audit event actor.
+            - Tool arguments are hints only; trusted actor, target, network, session, and policy
+              inputs are always derived from the audit event by the server.
             - Do not repeat a tool that already appears in observations.
+            - Select the narrowest tool that can resolve a material uncertainty.
+            - Treat limitations and missing telemetry as unknown, never as proof that risk is absent.
+            - Prefer corroborating high-impact findings across independent evidence sources.
             - Prefer FINALIZE when another tool would not materially change the assessment.
             - Keep thought to one short, audit-safe rationale. Do not reveal hidden chain-of-thought.
             - For TOOL, set action=TOOL, decision=continue, toolRequest, and no finalResponse.
             - For FINALIZE, set action=FINALIZE, decision=stop, finalResponse, and no toolRequest.
             - Risk score must be 0 through 10.
-            """;
+            """.formatted(InvestigationToolCatalog.promptCatalog());
 
     private final ChatClient.Builder chatClientBuilder;
     private final ObjectMapper objectMapper;

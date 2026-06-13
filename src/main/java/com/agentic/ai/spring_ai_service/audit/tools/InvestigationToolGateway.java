@@ -1,6 +1,9 @@
 package com.agentic.ai.spring_ai_service.audit.tools;
 
+import com.agentic.ai.spring_ai_service.audit.model.AuditEvent;
 import com.agentic.ai.spring_ai_service.audit.model.ToolExecutionRecord;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -8,173 +11,200 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class InvestigationToolGateway {
 
-    private static final Set<String> ALLOWED_TOOLS = Set.of(
-            "getUserActivitySummary",
-            "getFailedLoginCount",
-            "getRecentEvents"
-    );
-
     private final AuditTools auditTools;
+    private final InvestigationEvidenceService evidenceService;
+    private final ObjectMapper objectMapper;
 
-    public ToolExecutionRecord executeWhitelisted(String toolName, Map<String, Object> input) {
+    public ToolExecutionRecord executeWhitelisted(
+            String toolName,
+            AuditEvent event,
+            Map<String, Object> input
+    ) {
         if (toolName == null || toolName.isBlank()) {
-            return ToolExecutionRecord.builder()
-                    .toolName("UNKNOWN")
-                    .success(false)
-                    .durationMs(0L)
-                    .inputSummary(input != null ? input.toString() : "{}")
-                    .outputSummary(null)
-                    .errorMessage("Tool name is missing.")
-                    .executedAt(LocalDateTime.now())
-                    .build();
+            return rejected("UNKNOWN", input, "Tool name is missing.");
         }
-
-        if (!ALLOWED_TOOLS.contains(toolName)) {
-            return ToolExecutionRecord.builder()
-                    .toolName(toolName)
-                    .success(false)
-                    .durationMs(0L)
-                    .inputSummary(input != null ? input.toString() : "{}")
-                    .outputSummary(null)
-                    .errorMessage("Tool is not whitelisted: " + toolName)
-                    .executedAt(LocalDateTime.now())
-                    .build();
+        if (!InvestigationToolCatalog.contains(toolName)) {
+            return rejected(toolName, input, "Tool is not whitelisted: " + toolName);
+        }
+        if (event == null && requiresEventContext(toolName)) {
+            return rejected(toolName, input, "Trusted audit-event context is required for this tool.");
         }
 
         return switch (toolName) {
-            case "getUserActivitySummary" -> {
-                String actor = getString(input, "actor");
-                yield execute(
-                        toolName,
-                        input,
-                        () -> formatUserActivitySummary(actor, auditTools.getUserActivitySummary(actor))
-                );
-            }
-            case "getFailedLoginCount" -> {
-                String actor = getString(input, "actor");
-                yield execute(
-                        toolName,
-                        input,
-                        () -> formatFailedLoginCount(actor, auditTools.getFailedLoginCount(actor))
-                );
-            }
-            case "getRecentEvents" -> {
-                String actor = getString(input, "actor");
-                int limit = getInt(input, "limit", 5);
-                yield execute(
-                        toolName,
-                        input,
-                        () -> formatRecentEvents(actor, limit, auditTools.getRecentEvents(actor, limit))
-                );
-            }
-            default -> ToolExecutionRecord.builder()
-                    .toolName(toolName)
-                    .success(false)
-                    .durationMs(0L)
-                    .inputSummary(input != null ? input.toString() : "{}")
-                    .outputSummary(null)
-                    .errorMessage("Unsupported tool: " + toolName)
-                    .executedAt(LocalDateTime.now())
-                    .build();
+            case "getUserActivitySummary" -> executeLegacy(
+                    toolName, input, "audit_events.actor_history", 0.90,
+                    () -> auditTools.getUserActivitySummary(stringArg(input, "actor")));
+            case "getFailedLoginCount" -> executeLegacy(
+                    toolName, input, "audit_events.authentication_history", 0.95,
+                    () -> auditTools.getFailedLoginCount(stringArg(input, "actor")));
+            case "getRecentEvents" -> executeLegacy(
+                    toolName, input, "audit_events.actor_history", 0.90,
+                    () -> auditTools.getRecentEvents(stringArg(input, "actor"), intArg(input, "limit", 5)));
+            case "getIdentityRiskProfile" -> executeEvidence(toolName, input, () -> evidenceService.identityRisk(event));
+            case "getAuthenticationRisk" -> executeEvidence(toolName, input, () -> evidenceService.authenticationRisk(event));
+            case "getBehavioralBaseline" -> executeEvidence(toolName, input, () -> evidenceService.behavioralBaseline(event));
+            case "getRelatedEventSequence" -> executeEvidence(
+                    toolName, input, () -> evidenceService.relatedEventSequence(event, intArg(input, "hours", 24)));
+            case "getAssetRiskProfile" -> executeEvidence(toolName, input, () -> evidenceService.assetRisk(event));
+            case "getNetworkRiskContext" -> executeEvidence(toolName, input, () -> evidenceService.networkRisk(event));
+            case "getSessionRiskContext" -> executeEvidence(toolName, input, () -> evidenceService.sessionRisk(event));
+            case "getAuthorizationContext" -> executeEvidence(toolName, input, () -> evidenceService.authorizationContext(event));
+            case "getDataExposureContext" -> executeEvidence(toolName, input, () -> evidenceService.dataExposure(event));
+            case "searchApplicablePolicies" -> executeEvidence(toolName, input, () -> evidenceService.applicablePolicies(event));
+            case "getControlCoverage" -> executeEvidence(toolName, input, () -> evidenceService.controlCoverage(event));
+            case "getThreatIndicatorContext" -> executeEvidence(toolName, input, () -> evidenceService.threatIndicators(event));
+            default -> rejected(toolName, input, "Unsupported tool: " + toolName);
         };
+    }
+
+    public ToolExecutionRecord executeWhitelisted(String toolName, Map<String, Object> input) {
+        return executeWhitelisted(toolName, null, input);
     }
 
     public ToolExecutionRecord execute(String toolName, String inputSummary, Supplier<Object> supplier) {
         long start = System.currentTimeMillis();
-
         try {
             Object result = supplier.get();
-            long duration = System.currentTimeMillis() - start;
-
-            ToolExecutionRecord record = ToolExecutionRecord.builder()
-                    .toolName(toolName)
-                    .success(true)
-                    .durationMs(duration)
-                    .inputSummary(inputSummary)
-                    .outputSummary(result != null ? String.valueOf(result) : "null")
-                    .errorMessage(null)
-                    .executedAt(LocalDateTime.now())
-                    .build();
-
-            log.info("Tool executed successfully. tool={} durationMs={}", toolName, duration);
-            return record;
-
+            return success(toolName, inputSummary, String.valueOf(result), start, null, null, List.of(), List.of());
         } catch (Exception ex) {
-            long duration = System.currentTimeMillis() - start;
-
-            ToolExecutionRecord record = ToolExecutionRecord.builder()
-                    .toolName(toolName)
-                    .success(false)
-                    .durationMs(duration)
-                    .inputSummary(inputSummary)
-                    .outputSummary(null)
-                    .errorMessage(ex.getMessage())
-                    .executedAt(LocalDateTime.now())
-                    .build();
-
-            log.warn("Tool execution failed. tool={} durationMs={} error={}", toolName, duration, ex.getMessage());
-            return record;
+            return failure(toolName, inputSummary, start, ex);
         }
     }
 
     public ToolExecutionRecord execute(String toolName, Map<String, Object> input, Supplier<Object> supplier) {
-        return execute(toolName, input != null ? input.toString() : "{}", supplier);
+        return execute(toolName, summarizeInput(input), supplier);
     }
 
-    private String formatUserActivitySummary(String actor, Object raw) {
-        return "User activity summary for " + actor + ": " + safe(raw);
-    }
-
-    private String formatFailedLoginCount(String actor, Object raw) {
-        return "Failed login count for " + actor + ": " + safe(raw);
-    }
-
-    private String formatRecentEvents(String actor, int limit, Object raw) {
-        if (raw instanceof List<?> list) {
-            String summary = list.stream()
-                    .limit(3)
-                    .map(String::valueOf)
-                    .collect(Collectors.joining(" | "));
-            return "Recent events for " + actor + " limit=" + limit + ": count=" + list.size() + (summary.isBlank() ? "" : " -> " + summary);
+    private ToolExecutionRecord executeEvidence(
+            String toolName,
+            Map<String, Object> input,
+            Supplier<InvestigationEvidence> supplier
+    ) {
+        long start = System.currentTimeMillis();
+        try {
+            InvestigationEvidence evidence = supplier.get();
+            return success(
+                    toolName,
+                    summarizeInput(input),
+                    toJson(evidence),
+                    start,
+                    evidence.source(),
+                    evidence.confidence(),
+                    evidence.evidenceIds(),
+                    evidence.limitations());
+        } catch (Exception ex) {
+            return failure(toolName, summarizeInput(input), start, ex);
         }
-        return "Recent events for " + actor + " limit=" + limit + ": " + safe(raw);
     }
 
-    private String getString(Map<String, Object> input, String key) {
-        if (input == null || !input.containsKey(key) || input.get(key) == null) {
+    private ToolExecutionRecord executeLegacy(
+            String toolName,
+            Map<String, Object> input,
+            String source,
+            double confidence,
+            Supplier<Object> supplier
+    ) {
+        long start = System.currentTimeMillis();
+        try {
+            Object result = supplier.get();
+            return success(
+                    toolName, summarizeInput(input), String.valueOf(result), start,
+                    source, confidence, List.of(), List.of());
+        } catch (Exception ex) {
+            return failure(toolName, summarizeInput(input), start, ex);
+        }
+    }
+
+    private ToolExecutionRecord success(
+            String toolName,
+            String inputSummary,
+            String outputSummary,
+            long start,
+            String source,
+            Double confidence,
+            List<String> evidenceIds,
+            List<String> limitations
+    ) {
+        long duration = System.currentTimeMillis() - start;
+        log.info("Tool executed successfully. tool={} durationMs={} source={}", toolName, duration, source);
+        return ToolExecutionRecord.builder()
+                .toolName(toolName)
+                .success(true)
+                .durationMs(duration)
+                .inputSummary(inputSummary)
+                .outputSummary(outputSummary)
+                .executedAt(LocalDateTime.now())
+                .source(source)
+                .confidence(confidence)
+                .evidenceIds(evidenceIds)
+                .limitations(limitations)
+                .build();
+    }
+
+    private ToolExecutionRecord failure(String toolName, String inputSummary, long start, Exception ex) {
+        long duration = System.currentTimeMillis() - start;
+        log.warn("Tool execution failed. tool={} durationMs={} error={}", toolName, duration, ex.getMessage());
+        return ToolExecutionRecord.builder()
+                .toolName(toolName)
+                .success(false)
+                .durationMs(duration)
+                .inputSummary(inputSummary)
+                .errorMessage(ex.getMessage())
+                .executedAt(LocalDateTime.now())
+                .limitations(List.of("The evidence source could not be queried."))
+                .build();
+    }
+
+    private ToolExecutionRecord rejected(String toolName, Map<String, Object> input, String error) {
+        return ToolExecutionRecord.builder()
+                .toolName(toolName)
+                .success(false)
+                .durationMs(0L)
+                .inputSummary(summarizeInput(input))
+                .errorMessage(error)
+                .executedAt(LocalDateTime.now())
+                .limitations(List.of(error))
+                .build();
+    }
+
+    private boolean requiresEventContext(String toolName) {
+        return !List.of("getUserActivitySummary", "getFailedLoginCount", "getRecentEvents").contains(toolName);
+    }
+
+    private String stringArg(Map<String, Object> input, String key) {
+        if (input == null || input.get(key) == null) {
             return "";
         }
         return String.valueOf(input.get(key));
     }
 
-    private int getInt(Map<String, Object> input, String key, int defaultValue) {
-        if (input == null || !input.containsKey(key) || input.get(key) == null) {
+    private int intArg(Map<String, Object> input, String key, int defaultValue) {
+        if (input == null || input.get(key) == null) {
             return defaultValue;
         }
-
-        Object value = input.get(key);
-
-        if (value instanceof Number number) {
-            return number.intValue();
-        }
-
         try {
-            return Integer.parseInt(String.valueOf(value));
+            return Integer.parseInt(String.valueOf(input.get(key)));
         } catch (NumberFormatException ex) {
             return defaultValue;
         }
     }
 
-    private String safe(Object value) {
-        return value == null ? "null" : String.valueOf(value);
+    private String summarizeInput(Map<String, Object> input) {
+        return input == null ? "{}" : input.toString();
+    }
+
+    private String toJson(InvestigationEvidence evidence) {
+        try {
+            return objectMapper.writeValueAsString(evidence);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Could not serialize investigation evidence.", ex);
+        }
     }
 }

@@ -27,6 +27,7 @@ public class ToolExecutionOrchestrator {
 
         ToolExecutionRecord record = investigationToolGateway.executeWhitelisted(
                 toolName,
+                event,
                 request != null ? request.getToolArgs() : null
         );
 
